@@ -116,7 +116,7 @@ test.describe('remote providers on Home', () => {
     };
     let link = await connectForm('new-from-github', 'github');
     await expect(link).toHaveText('Create a token on github.com');
-    await expect(link).toHaveAttribute('href', 'https://github.com/settings/tokens/new?scopes=repo&description=Aldine');
+    await expect(link).toHaveAttribute('href', 'https://github.com/settings/tokens/new?scopes=repo&description=Laytekz');
     await expect(link).toHaveAttribute('target', '_blank');
     // one repository: a fine-grained token, limited to it
     await page.getByTestId('github-single').click();
@@ -130,21 +130,21 @@ test.describe('remote providers on Home', () => {
     await expect(page.getByTestId('github-selfhosted-toggle').locator('..')).toHaveText('Using GitHub Enterprise Server?');
     await page.getByTestId('github-baseurl').fill('https://github.example.edu');
     await expect(link).toHaveText('Create a token on github.example.edu');
-    await expect(link).toHaveAttribute('href', 'https://github.example.edu/settings/tokens/new?scopes=repo&description=Aldine');
+    await expect(link).toHaveAttribute('href', 'https://github.example.edu/settings/tokens/new?scopes=repo&description=Laytekz');
 
     link = await connectForm('new-from-gitlab', 'gitlab');
-    await expect(link).toHaveAttribute('href', 'https://gitlab.com/-/user_settings/personal_access_tokens?name=Aldine&scopes=api');
+    await expect(link).toHaveAttribute('href', 'https://gitlab.com/-/user_settings/personal_access_tokens?name=Laytekz&scopes=api');
     // a self-hosted instance gets its own page, built from the URL typed in
     await page.getByTestId('gitlab-selfhosted-toggle').check();
     await page.getByTestId('gitlab-baseurl').fill('https://gitlab.example.org/');
     await expect(link).toHaveText('Create a token on gitlab.example.org');
-    await expect(link).toHaveAttribute('href', 'https://gitlab.example.org/-/user_settings/personal_access_tokens?name=Aldine&scopes=api');
+    await expect(link).toHaveAttribute('href', 'https://gitlab.example.org/-/user_settings/personal_access_tokens?name=Laytekz&scopes=api');
     // the one-repository form links the same way, from its own URL field
     await page.getByTestId('gitlab-single').click();
     const single = page.getByTestId('gitlab-single-token-page');
-    await expect(single).toHaveAttribute('href', 'https://gitlab.com/-/user_settings/personal_access_tokens?name=Aldine&scopes=api');
+    await expect(single).toHaveAttribute('href', 'https://gitlab.com/-/user_settings/personal_access_tokens?name=Laytekz&scopes=api');
     await page.getByTestId('gitlab-single-baseurl').fill('https://git.example.net');
-    await expect(single).toHaveAttribute('href', 'https://git.example.net/-/user_settings/personal_access_tokens?name=Aldine&scopes=api');
+    await expect(single).toHaveAttribute('href', 'https://git.example.net/-/user_settings/personal_access_tokens?name=Laytekz&scopes=api');
 
     // Gitea / Forgejo has no canonical instance: no link until one is named
     link = await connectForm('new-from-gitea', 'gitea');
@@ -409,7 +409,7 @@ test.describe('GitLab sync', () => {
 
       // a token the host refuses is not stored
       await page.getByTestId('gitlab-project-token-add').click();
-      await expect(page.getByTestId('gitlab-project-token-page')).toHaveAttribute('href', 'https://gitlab.com/-/user_settings/personal_access_tokens?name=Aldine&scopes=api');
+      await expect(page.getByTestId('gitlab-project-token-page')).toHaveAttribute('href', 'https://gitlab.com/-/user_settings/personal_access_tokens?name=Laytekz&scopes=api');
       await page.getByTestId('gitlab-project-token').fill('bad');
       await page.getByTestId('gitlab-project-token-save').click();
       await expect(page.locator('.toast').filter({ hasText: 'That token was rejected by GitLab' })).toBeVisible();

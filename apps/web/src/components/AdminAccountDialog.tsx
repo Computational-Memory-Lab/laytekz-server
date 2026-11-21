@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import Modal from './Modal';
 import { api, ApiError, AdminUserRow, AdminResetResult } from '../api';
+import { PRODUCT_NAME } from '../product'; // Galley: the product's own name
 
 /**
  * One account on the admin page: its status and the actions an administrator
@@ -107,7 +108,7 @@ export default function AdminAccountDialog({ user, accounts, meId, admins, sends
   } else if (view === 'approve') {
     content = confirmStep(
       `Approve ${user.name}?`,
-      `They can sign in from now on.${sendsEmail && user.email ? ` Aldine emails ${user.email} to tell them.` : ''}`,
+      `They can sign in from now on.${sendsEmail && user.email ? ` ${PRODUCT_NAME} emails ${user.email} to tell them.` : ''}`,
       'Approve account',
       async () => { onChanged(await api.adminEnable(user.id)); back(); },
     );
@@ -122,7 +123,7 @@ export default function AdminAccountDialog({ user, accounts, meId, admins, sends
     content = sendsEmail
       ? confirmStep(
         `Email ${user.name} a reset link?`,
-        `Aldine sends ${user.email} the mail the “Forgot password” form sends. The link works once, for an hour.`,
+        `${PRODUCT_NAME} sends ${user.email} the mail the “Forgot password” form sends. The link works once, for an hour.`,
         'Email reset link',
         async () => { setReset(await api.adminResetLink(user.id)); setView('reset-done'); },
       )

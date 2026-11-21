@@ -51,6 +51,11 @@ res = await app.inject({ method: 'POST', url: '/mcp', remoteAddress: '203.0.113.
 check(res.statusCode === 401, `wrong X-Aldine-Token → 401 (got ${res.statusCode})`);
 check(/error="invalid_token"/.test(res.headers['www-authenticate'] || ''), 'a wrong X-Aldine-Token is challenged as invalid_token');
 
+// Galley: the UI names the header X-Laytekz-Token; it is read the same way.
+res = await app.inject({ method: 'POST', url: '/mcp', remoteAddress: '203.0.113.1', headers: { 'x-laytekz-token': 'aldn_wrongwrongwrongwrong' }, payload: rpcPing });
+check(res.statusCode === 401, `wrong X-Laytekz-Token → 401 (got ${res.statusCode})`);
+check(/error="invalid_token"/.test(res.headers['www-authenticate'] || ''), 'a wrong X-Laytekz-Token is challenged as invalid_token, so the header is read');
+
 // The Claude Code plugin sends `X-Aldine-Token: ${ALDINE_TOKEN:-}` — an empty
 // header when the variable is unset. That must read as "no credential" (a
 // challenge without invalid_token starts the Connect flow), not as a wrong token.

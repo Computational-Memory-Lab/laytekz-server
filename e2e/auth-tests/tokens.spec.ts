@@ -115,7 +115,7 @@ test.describe('agent access card at 1280×800', () => {
     await expect(page.getByTestId('agent-connector-url')).toHaveText('https://papers.example.org/mcp');
     await expect(page.getByTestId('agent-connector-copy')).toBeVisible();
     await expect(page.getByTestId('connect-chatgpt-needs-signin')).toHaveCount(0);
-    await expect(modal).toContainText('ask ChatGPT to ping Aldine');
+    await expect(modal).toContainText('ask ChatGPT to ping Laytekz');
   });
 
   test('the create form and the shown-once token scroll clear of the footer and take focus; an empty name is marked on the field', async ({ page }) => {

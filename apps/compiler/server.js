@@ -14,6 +14,11 @@
  *   GET  /catalog  -> { ok, generatedAt, classes: [{ id, cls, kind, license, sample }] }
  *   POST /format   { text, indent?, ext? } -> { ok, text } | { ok: false, reason, error }  (format.js)
  *
+ * Galley: with COMPILER_TOKEN set, every route but GET /health answers 401
+ * unless the request carries that token in the x-compiler-token header
+ * (guard.js). POST /compile also takes `timeoutMs`, the caller's time budget
+ * for the whole request, waiting for a slot included.
+ *
  * The compiler shares the projects volume (read) and an output cache volume
  * (write) with the app server, so no file transfer is needed.
  * Security: restricted shell-escape (whitelist only), no latexmk rc file, no
@@ -31,6 +36,7 @@ const { getCatalog } = require('./catalog.js');
 const preamble = require('./preamble.js');
 const thumbnail = require('./thumbnail.js');
 const formatter = require('./format.js');
+const guard = require('./guard.js');
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 4020;
 const DATA_DIR = process.env.DATA_DIR || path.resolve(__dirname, '../../.data');
@@ -47,6 +53,12 @@ const SCHEME_FILE = process.env.TEXLIVE_SCHEME_FILE || path.join(__dirname, 'tex
 
 const LOG_MAX = 200_000;
 const LOG_HEAD = 20_000;
+// Galley: the JSON bodies of /compile, /synctex and /stop name a directory, a
+// file and a few numbers; anything near this size is not one of them.
+const BODY_MAX = 64 * 1024;
+// Galley: what one child's stdout and stderr may hold in memory (head + tail).
+const OUTPUT_HEAD_MAX = 256 * 1024;
+const OUTPUT_TAIL_MAX = 1024 * 1024;
 
 /**
  * The log as the app keeps it. The head names the engine, the format and the
@@ -277,24 +289,27 @@ function killGroup(child) {
 function run(cmd, args, opts, timeoutMs, job) {
   return new Promise((resolve) => {
     if (job && job.stopped) { resolve({ code: -1, out: '', timedOut: false }); return; }
+    // Galley: a request whose time budget is spent starts nothing more.
+    if (!(timeoutMs > 0)) { resolve({ code: -1, out: '', timedOut: true }); return; }
     const child = spawn(cmd, args, { ...opts });
     if (job) job.child = child;
     // Decode via StringDecoder so a multibyte UTF-8 char split across two chunk
     // boundaries (accented names, UTF-8 paths in biber output) isn't mangled.
     const decoder = new (require('string_decoder').StringDecoder)('utf8');
-    let out = '';
+    // Galley: bounded, so a document that prints without end cannot exhaust memory.
+    const out = new guard.OutputBuffer(OUTPUT_HEAD_MAX, OUTPUT_TAIL_MAX);
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
       killGroup(child);
     }, timeoutMs);
     const done = () => { clearTimeout(timer); if (job && job.child === child) job.child = null; };
-    child.stdout.on('data', (d) => { out += decoder.write(d); });
-    child.stderr.on('data', (d) => { out += decoder.write(d); });
+    child.stdout.on('data', (d) => { out.push(decoder.write(d)); });
+    child.stderr.on('data', (d) => { out.push(decoder.write(d)); });
     child.on('close', (code) => {
       done();
-      out += decoder.end();
-      resolve({ code: timedOut || (job && job.stopped) ? -1 : code, out, timedOut });
+      out.push(decoder.end());
+      resolve({ code: timedOut || (job && job.stopped) ? -1 : code, out: out.toString(), timedOut });
     });
     child.on('error', (err) => {
       done();
@@ -329,12 +344,10 @@ function stopJobs(absDir) {
   return set.size;
 }
 
-/** DATA_DIR/<projectDir>, refused when it would leave DATA_DIR. */
+/** DATA_DIR/<projectDir>, refused unless strictly inside DATA_DIR (Galley:
+ *  a sibling sharing DATA_DIR's prefix, or DATA_DIR itself, is refused too). */
 function projectRoot(projectDir) {
-  if (typeof projectDir !== 'string' || !projectDir || projectDir.includes('..')) throw new Error('invalid projectDir');
-  const absDir = path.resolve(DATA_DIR, projectDir);
-  if (!absDir.startsWith(path.resolve(DATA_DIR))) throw new Error('projectDir escapes DATA_DIR');
-  return absDir;
+  return guard.projectRootIn(DATA_DIR, projectDir);
 }
 
 /**
@@ -386,10 +399,34 @@ function release() {
 /** What a typeset stopped before it ran reports. */
 const stoppedBeforeStart = () => ({ ok: false, stopped: true, timedOut: false, exitCode: -1, pdf: null, pdfFresh: false, synctex: null, synctexFresh: false, log: '', errors: [], durationMs: 0 });
 
+/** Galley: the one row a timed-out typeset reports first, naming the limit it hit. */
+function timeoutError(limitMs) {
+  return { type: 'error', line: null, message: `Typesetting was stopped after ${Math.round(limitMs / 1000)} s, the time limit for one typeset on this server. A document that never finishes (a macro that calls itself, a loop without an end) stops here, and so does one that needs longer than that.` };
+}
+
+/** What a typeset whose time budget ran out while it waited for a slot reports. */
+const timedOutBeforeStart = (limitMs) => ({ ok: false, timedOut: true, exitCode: -1, pdf: null, pdfFresh: false, synctex: null, synctexFresh: false, log: '', errors: [timeoutError(limitMs)], durationMs: 0 });
+
+/**
+ * Galley: the caller's time budget for this request (`timeoutMs`, a positive
+ * number of milliseconds), or null for none. It covers the wait for a slot
+ * and every latexmk run; each run is still capped at COMPILE_TIMEOUT_MS.
+ */
+function requestBudget(timeoutMs) {
+  if (timeoutMs === undefined || timeoutMs === null) return null;
+  if (typeof timeoutMs !== 'number' || !Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new Error('invalid timeoutMs');
+  return Math.min(timeoutMs, 24 * 3600_000);
+}
+
 async function compile(body) {
+  const budget = requestBudget(body.timeoutMs);
   const job = startJob(projectRoot(body.projectDir));
+  job.deadline = budget === null ? Infinity : Date.now() + budget;
+  job.budget = budget;
+  // Out of time while still waiting for a slot: leave the queue unrun.
+  const expiry = budget === null ? null : setTimeout(() => { job.expired = true; if (job.leaveQueue) job.leaveQueue(); }, budget);
   try {
-    if (!(await acquire(job))) return stoppedBeforeStart();
+    if (!(await acquire(job))) return job.expired && !job.stopped ? timedOutBeforeStart(budget) : stoppedBeforeStart();
     try {
       if (job.stopped) return stoppedBeforeStart();
       return await compileInner(body, job);
@@ -397,6 +434,7 @@ async function compile(body) {
       release();
     }
   } finally {
+    if (expiry) clearTimeout(expiry);
     endJob(job);
   }
 }
@@ -407,12 +445,14 @@ async function compile(body) {
  * latexmk reads "-pdflatex=<program>" as an option that runs <program>: with
  * it, whoever can name the main document runs commands in this container.
  * The "./" prefix in mkArgs is the second lock on the same door.
+ * Galley: latexmk also passes the name to /bin/sh inside double quotes, where
+ * a backtick runs a command, so the name must pass an allowlist (guard.js).
  */
-function invalidRootFile(rootFile) {
-  if (typeof rootFile !== 'string' || !rootFile) return true;
-  if (rootFile.includes('..') || path.isAbsolute(rootFile)) return true;
-  return rootFile.split(/[\\/]/).some((seg) => seg.startsWith('-'));
-}
+const { invalidRootFile, rootFileProblem } = guard;
+const checkRootFile = (rootFile) => {
+  const problem = rootFileProblem(rootFile);
+  if (problem) throw new Error(`invalid rootFile: ${problem}`);
+};
 
 /**
  * The first symbolic link under `absDir` (project-relative) that does not
@@ -475,7 +515,7 @@ async function cleanOutput(absDir, rootDir) {
 async function compileInner(body, job) {
   const { projectDir, rootFile = 'main.tex', engine = 'pdf', haltOnError = false, draft = false } = body;
   const absDir = projectRoot(projectDir);
-  if (invalidRootFile(rootFile)) throw new Error('invalid rootFile');
+  checkRootFile(rootFile);
   if (!fs.existsSync(path.join(absDir, rootFile))) throw new Error(`root file not found: ${rootFile}`);
   // Before anything is written: the output directory itself may be a link.
   const outside = linkOutOfProject(absDir);
@@ -553,11 +593,20 @@ async function compileInner(body, job) {
   // The previous run's thumbnail render reads the PDF this run rewrites.
   await thumbnail.cancel(outAbs);
   const t0 = Date.now();
-  let { code, out, timedOut } = await run('latexmk', mkArgs(afterDraft), runOpts, TIMEOUT_MS, job);
+  // Galley: each run gets COMPILE_TIMEOUT_MS or what is left of the request's
+  // budget, whichever is less; the limit that ended a timed-out run is reported.
+  let limitHit = TIMEOUT_MS;
+  const latexmk = (args) => {
+    const left = job.deadline - Date.now();
+    const ms = Math.min(TIMEOUT_MS, left);
+    limitHit = left < TIMEOUT_MS ? job.budget : TIMEOUT_MS;
+    return run('latexmk', args, runOpts, ms, job);
+  };
+  let { code, out, timedOut } = await latexmk(mkArgs(afterDraft));
   if (code === 0 && !timedOut && !fs.existsSync(pdfPath)) {
     // latexmk believed everything was current but the PDF is gone (cleaned
     // output dir / stale state) — force a real rebuild.
-    ({ code, out, timedOut } = await run('latexmk', mkArgs(true), runOpts, TIMEOUT_MS, job));
+    ({ code, out, timedOut } = await latexmk(mkArgs(true)));
   }
   // Stale-aux recovery: if the package set changed (e.g. dropping biblatex),
   // leftover .aux/.bcf artifacts make an otherwise-valid document fail with an
@@ -573,7 +622,7 @@ async function compileInner(body, job) {
     for (const ext of ['aux', 'bcf', 'bbl', 'blg', 'run.xml', 'toc', 'out', 'fls', 'fdb_latexmk']) {
       try { fs.rmSync(path.join(outAbs, `${base}.${ext}`), { force: true }); } catch { /* best effort */ }
     }
-    ({ code, out, timedOut } = await run('latexmk', mkArgs(true), runOpts, TIMEOUT_MS, job));
+    ({ code, out, timedOut } = await latexmk(mkArgs(true)));
   }
   // A run on a format nobody has vouched for yet that fails gets the plain
   // run: if that one succeeds, the format is what broke the document.
@@ -584,7 +633,7 @@ async function compileInner(body, job) {
     if (!formatOk && !timedOut && !job.stopped && !pre.manifest.verified) {
       usingFormat = false;
       runOpts = optsFor(false);
-      ({ code, out, timedOut } = await run('latexmk', mkArgs(true), runOpts, TIMEOUT_MS, job));
+      ({ code, out, timedOut } = await latexmk(mkArgs(true)));
       const plainOk = code === 0 || capped(out);
       preamble.settle(pre, { formatOk, plainOk });
       preambleCache = 'fallback';
@@ -656,6 +705,7 @@ async function compileInner(body, job) {
   // Never report a failure the user cannot read: a run that fails with nothing
   // in either log falls back to latexmk's own summary.
   if (!ok && !timedOut && !stopped && !errors.some((e) => e.type === 'error')) errors.push(...latexmkFailure(out));
+  if (timedOut && !ok && !stopped) errors.unshift(timeoutError(limitHit));
   if (!usingFormat && pre.status === 'miss' && !timedOut && !stopped && documentBodyReached(log)) preamble.scheduleBuild(pre);
   // The thumbnail follows the PDF pane: a run that went to the end of the
   // document and wrote a fresh PDF is shown even when it logged errors, so it
@@ -686,10 +736,16 @@ async function compileInner(body, job) {
 /** SyncTeX forward (code->pdf) and inverse (pdf->code) lookups. */
 async function synctex(body) {
   const { projectDir, rootFile = 'main.tex', direction, line, column = 0, page, x, y } = body;
-  if (!projectDir || projectDir.includes('..')) throw new Error('invalid projectDir');
-  if (invalidRootFile(rootFile)) throw new Error('invalid rootFile');
-  const absDir = path.resolve(DATA_DIR, projectDir);
-  if (!absDir.startsWith(path.resolve(DATA_DIR))) throw new Error('projectDir escapes DATA_DIR');
+  const absDir = projectRoot(projectDir);
+  checkRootFile(rootFile);
+  // Galley: every value below lands in a synctex argument; only numbers and a
+  // plain file name do.
+  const int = (v) => Number.isInteger(v) && v >= 0 && v < 1e9;
+  const num = (v) => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) < 1e9;
+  if (direction === 'forward') {
+    if (!int(line) || !int(column)) throw new Error('invalid line or column');
+    if (body.file !== undefined && body.file !== null && (typeof body.file !== 'string' || /[\x00-\x1f\x7f]/.test(body.file))) throw new Error('invalid file');
+  } else if (!int(page) || !num(x) || !num(y)) throw new Error('invalid page or position');
   const rootDir = path.dirname(rootFile);
   const base = path.basename(rootFile).replace(/\.tex$/i, '');
   const pdf = path.join(rootDir, OUT_SUBDIR, `${base}.pdf`);
@@ -728,8 +784,16 @@ async function synctex(body) {
   return { ok: true, records };
 }
 
+/** Galley: COMPILER_TOKEN in comparable form, set at startup; null = no token required. */
+let tokenDigest = null;
+
 const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && req.url === '/health') return json(res, 200, { ok: true, texlive, thumbnails: thumbnail.rendererName(), latexindent: formatter.info() });
+  // Galley: every other route needs the token. The body is not read first.
+  if (!guard.authorized(req.headers[guard.TOKEN_HEADER], tokenDigest)) {
+    res.setHeader('connection', 'close');
+    return json(res, 401, { ok: false, error: `missing or wrong compiler token (${guard.TOKEN_HEADER} header)` });
+  }
   if (req.method === 'GET' && (req.url === '/catalog' || req.url.startsWith('/catalog?'))) {
     return getCatalog().then((c) => json(res, 200, c), (err) => json(res, 500, { ok: false, error: String(err && err.message || err) }));
   }
@@ -738,40 +802,31 @@ const server = http.createServer(async (req, res) => {
     // JSON escapes at most double a text of tabs and newlines; past that the
     // body is no file that could be formatted, and it is not read further.
     const limit = formatter.MAX_BYTES * 2 + 4096;
-    const chunks = [];
-    let size = 0;
-    let over = false;
-    req.on('data', (d) => {
-      if (over) return;
-      size += d.length;
-      if (size > limit) { over = true; chunks.length = 0; return; }
-      chunks.push(d);
-    });
-    req.on('end', async () => {
-      if (over) return json(res, 200, { ok: false, reason: 'too-large', error: formatter.sizeLimit() });
-      try {
-        json(res, 200, await formatter.format(JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}')));
-      } catch (err) {
-        json(res, 400, { ok: false, reason: 'invalid', error: String(err && err.message || err) });
-      }
-    });
+    let body;
+    try { body = await guard.readBody(req, limit); } catch { return; }
+    if (body.over) return json(res, 200, { ok: false, reason: 'too-large', error: formatter.sizeLimit() });
+    try {
+      json(res, 200, await formatter.format(JSON.parse(body.text || '{}')));
+    } catch (err) {
+      json(res, 400, { ok: false, reason: 'invalid', error: String(err && err.message || err) });
+    }
     return;
   }
 
   if (req.method === 'POST' && (req.url === '/compile' || req.url === '/synctex' || req.url === '/stop')) {
-    let raw = '';
-    req.on('data', (d) => { raw += d; });
-    req.on('end', async () => {
-      try {
-        const body = JSON.parse(raw || '{}');
-        const result = req.url === '/compile' ? await compile(body)
-          : req.url === '/stop' ? { ok: true, stopped: stopJobs(projectRoot(body.projectDir)) }
-          : await synctex(body);
-        json(res, 200, result);
-      } catch (err) {
-        json(res, 400, { ok: false, error: String(err && err.message || err) });
-      }
-    });
+    let raw;
+    try { raw = await guard.readBody(req, BODY_MAX); } catch { return; }
+    if (raw.over) return json(res, 413, { ok: false, error: `request body over ${BODY_MAX / 1024} KB` });
+    try {
+      const body = JSON.parse(raw.text || '{}');
+      if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('the request body must be a JSON object');
+      const result = req.url === '/compile' ? await compile(body)
+        : req.url === '/stop' ? { ok: true, stopped: stopJobs(projectRoot(body.projectDir)) }
+        : await synctex(body);
+      json(res, 200, result);
+    } catch (err) {
+      json(res, 400, { ok: false, error: String(err && err.message || err) });
+    }
     return;
   }
   json(res, 404, { ok: false, error: 'not found' });
@@ -779,11 +834,24 @@ const server = http.createServer(async (req, res) => {
 
 // The log parsers are pure and worth testing without a TeX Live image; the
 // server only starts when this file is run directly (the image's CMD).
-module.exports = { parseLog, parseBibLog, latexmkFailure, invalidRootFile, documentBodyReached, clipLog, preambleIdle: preamble.idle, thumbnailsIdle: thumbnail.idle };
+module.exports = { parseLog, parseBibLog, latexmkFailure, invalidRootFile, rootFileProblem, documentBodyReached, clipLog, preambleIdle: preamble.idle, thumbnailsIdle: thumbnail.idle };
 
 if (require.main === module) {
+  // Galley: refuse to serve an open API on a shared machine (guard.js
+  // startupProblem). The token is then taken out of the environment, so no
+  // tool this service starts (latexmk, TeX, biber, kpsewhich, gs) inherits it.
+  const problem = guard.startupProblem(process.env);
+  if (problem) {
+    console.error(`[compiler] not starting: ${problem}`);
+    process.exit(78);
+  }
+  tokenDigest = guard.tokenDigest(process.env.COMPILER_TOKEN);
+  delete process.env.COMPILER_TOKEN;
+  if (!tokenDigest) console.warn('[compiler] no COMPILER_TOKEN: every caller that can reach this port may use the API');
   Promise.allSettled([probeTexLive(), thumbnail.probe(), formatter.probe()]).then(() => {
     const li = formatter.info();
-    server.listen(PORT, () => console.log(`[compiler] listening on :${PORT}, data=${DATA_DIR}, texlive=${texlive.release} (${texlive.scheme}), thumbnails=${thumbnail.rendererName()}, latexindent=${li.available ? li.version : `none (${li.error})`}`));
+    // Galley: a host run (no container network around it) sets
+    // HOST=127.0.0.1 and COMPILER_TOKEN. Unset HOST keeps upstream's default.
+    server.listen(PORT, process.env.HOST || undefined, () => console.log(`[compiler] listening on ${process.env.HOST || ''}:${PORT}, auth=${tokenDigest ? 'token' : 'none'}, data=${DATA_DIR}, texlive=${texlive.release} (${texlive.scheme}), thumbnails=${thumbnail.rendererName()}, latexindent=${li.available ? li.version : `none (${li.error})`}`));
   });
 }

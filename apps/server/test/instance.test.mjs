@@ -43,6 +43,8 @@ const { loadInstance, logoType, stampInstance, MAX_LOGO_BYTES } = await import('
   eq(none.info, { name: null, logo: null, logoDark: null, url: null, support: null }, 'nothing set, nothing shown');
   eq(none.warnings, [], 'and nothing to warn about');
   eq(stampInstance('<head><title>Aldine</title>', none.info), '<head><title>Aldine</title>', 'index.html untouched without an operator');
+  // Galley: an operator named like the product adds nothing to the title (product.ts).
+  check(stampInstance('<head><title>Laytekz</title>', loadInstance({ ALDINE_INSTANCE_NAME: 'Laytekz' }).info).includes('<title>Laytekz</title>'), 'no "Laytekz · Laytekz"');
 
   eq(loadInstance({ ALDINE_SUPPORT: 'https://help.example.org/latex' }).info.support, { kind: 'url', value: 'https://help.example.org/latex' }, 'a help page');
   eq(loadInstance({ ALDINE_SUPPORT: 'it@uni.example' }).info.support, { kind: 'email', value: 'it@uni.example' }, 'an address');
@@ -77,7 +79,7 @@ const app = await buildApp();
 {
   const page = await app.inject({ method: 'GET', url: '/' });
   eq(page.statusCode, 200, 'index served');
-  check(page.body.includes('<title>Aldine · Uni &quot;&lt;Kiel&gt;&quot; &amp; Co</title>'), `the operator joins Aldine in the title, escaped (${page.body})`);
+  check(page.body.includes('<title>Laytekz · Uni &quot;&lt;Kiel&gt;&quot; &amp; Co</title>'), `the operator joins the product in the title, escaped (${page.body})`);
   const m = /<meta name="aldine-instance" content="([^"]*)"/.exec(page.body);
   check(m, 'meta tag present');
   check(!m[1].includes('<'), 'no raw markup in the attribute');

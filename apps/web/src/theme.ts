@@ -19,9 +19,10 @@ export const APPEARANCES: readonly { id: Appearance; label: string }[] = [
   { id: 'dark', label: 'Dark' },
 ];
 
-/** Dark is Aldine's default: nothing stored, or anything unknown, is dark. */
+/** Galley: the default follows the operating system: nothing stored, or anything
+ *  unknown, is "system" (upstream defaulted to dark). */
 export function parseAppearance(raw: string | null | undefined): Appearance {
-  return raw === 'light' || raw === 'system' || raw === 'dark' ? raw : 'dark';
+  return raw === 'light' || raw === 'system' || raw === 'dark' ? raw : 'system';
 }
 
 export function resolveTheme(appearance: Appearance, systemDark: boolean): Theme {

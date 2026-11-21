@@ -114,16 +114,73 @@ export function rootSiblingPath(rootFile: string, name: string): string {
  *  initial commit runs git on whatever the seed wrote there. `.gitignore` is
  *  not hidden. */
 /**
+ * Galley: the characters a main document's name may use, per path segment.
+ * latexmk passes the name to /bin/sh inside double quotes, where a backtick
+ * runs a command and `$` expands, so only an allowlist is safe: letters and
+ * combining marks of any script, digits, the space and . _ - ( ) +. The
+ * compiler applies the same rules (apps/compiler/guard.js), and
+ * test/rootfile-guard.test.mjs keeps the two in step.
+ */
+const ROOT_SEGMENT_RE = /^[\p{L}\p{M}\p{N} ._()+-]+$/u;
+const ROOT_MAX_BYTES = 900;
+
+/** A character named the way a person can find it in the file name. */
+function describeChar(ch: string): string {
+  const cp = ch.codePointAt(0)!;
+  const hex = `U+${cp.toString(16).toUpperCase().padStart(4, '0')}`;
+  if (ch === '`') return 'a backtick (`)';
+  if (ch === '\\') return 'a backslash (\\)';
+  if (ch === '"' || ch === "'") return `a quotation mark (${ch})`;
+  if (cp < 0x20 || cp === 0x7f || (cp >= 0x80 && cp < 0xa0)) return `an invisible control character (${hex})`;
+  if (/[\p{L}\p{N}\p{P}\p{S}]/u.test(ch)) return `“${ch}”`;
+  return `an invisible character (${hex})`;
+}
+
+/**
  * Why a value cannot be the project's main document, or null when it can. The
  * compiler puts this name on latexmk's command line; a segment starting with
  * "-" would be read as an option there ("-pdflatex=<program>" runs the
- * program), so it is refused here as well as in the compiler.
+ * program), and latexmk hands the name to a shell, so anything outside
+ * ROOT_SEGMENT_RE is refused here as well as in the compiler.
  */
 export function invalidRootFile(rootFile: unknown): string | null {
   if (typeof rootFile !== 'string' || !rootFile.trim()) return 'Main document cannot be empty';
   if (rootFile.includes('..') || rootFile.startsWith('/') || rootFile.startsWith('\\')) return 'Main document must be a path inside the project';
   if (optionLikePath(rootFile)) return 'Main document name cannot start with "-"';
+  if (Buffer.byteLength(rootFile) > ROOT_MAX_BYTES) return `Main document path is longer than ${ROOT_MAX_BYTES} bytes`;
+  const segments = rootFile.split('/');
+  if (segments.some((seg) => !seg || seg === '.')) return 'Main document path has an empty or "." folder name';
+  if (overlongName(rootFile)) return `Main document path has a name longer than ${SEED_MAX_NAME_BYTES} bytes`;
+  if (isHiddenPath(rootFile)) return 'Main document cannot be inside .git or the compiler\'s output folder';
+  for (const seg of segments) {
+    if (ROOT_SEGMENT_RE.test(seg)) continue;
+    const bad = [...seg].find((ch) => !ROOT_SEGMENT_RE.test(ch))!;
+    return `Main document name cannot contain ${describeChar(bad)}. Use letters, digits, spaces and . _ - ( ) + only`;
+  }
   return null;
+}
+
+/**
+ * The sentence a typeset answers when the stored main document's name breaks
+ * the rules above (a project that predates them, or a file renamed through
+ * git): the typeset does not run, and the person is told what to rename.
+ */
+export function rootFileRenameMessage(rootFile: string, problem: string): string {
+  // Invisible and direction-changing characters would garble the sentence itself.
+  const shown = [...rootFile.replace(/\p{C}/gu, '\uFFFD')].slice(0, 200).join('');
+  const why = problem.replace(/\. Use letters.*$/, '');
+  return `Can’t typeset “${shown}”. ${why}: rename the file using letters, digits, spaces and . _ - ( ) + only, then typeset again.`;
+}
+
+/**
+ * Galley: the headers every request to the compile service carries. With
+ * COMPILER_TOKEN set (the same value as the compiler's), the token goes in
+ * x-compiler-token; the compiler refuses every route but GET /health without
+ * it. The value is read per call and never logged.
+ */
+export function compilerHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  const token = process.env.COMPILER_TOKEN;
+  return token ? { ...extra, 'x-compiler-token': token } : { ...extra };
 }
 
 /** A segment starting with "-" reads as an option wherever the path is an

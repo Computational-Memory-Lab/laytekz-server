@@ -231,7 +231,7 @@ configure();
 eq((await signIn(alice)).name, 'Alice Liddell', 'no advertised algs → RS256 default');
 mock.state.algs = ['HS256'];
 configure();
-await throws(() => signIn(alice), 'algorithms Aldine does not accept', 'an IdP offering only HMAC is refused');
+await throws(() => signIn(alice), 'algorithms Laytekz does not accept', 'an IdP offering only HMAC is refused');
 mock.state.algs = ['ES256'];
 configure();
 await throws(() => signIn(alice), 'signature could not be verified', 'an RS256 token when only ES256 is advertised');

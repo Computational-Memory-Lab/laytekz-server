@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import type { Mail } from './email.js';
 import type { Invitation } from './db/types.js';
+import { PRODUCT_KIND, PRODUCT_NAME } from './product.js'; // Galley: the product's own name
 
 /** Why some addresses were not mailed. One per response: the first cause hit. */
 export type NotEmailedReason = 'accounts-off' | 'no-mail' | 'unconfirmed' | 'limit' | 'failed';
@@ -59,12 +60,12 @@ export const PROJECT_NAME_MAX = 100;
 export function invitationMail(to: string, ownerName: string, projectName: string, inviteUrl: string): Mail {
   const owner = clip(ownerName, OWNER_NAME_MAX) || 'Someone';
   const project = clip(projectName, PROJECT_NAME_MAX) || 'Untitled project';
-  const how = `To accept, open the link and sign in or create an account with this address (${to}). A new account with a password confirms the address first: Aldine sends a second email whose link brings you back to the invitation. The invitation works only for this address, and it expires in ${INVITE_TTL_DAYS} days.`;
+  const how = `To accept, open the link and sign in or create an account with this address (${to}). A new account with a password confirms the address first: ${PRODUCT_NAME} sends a second email whose link brings you back to the invitation. The invitation works only for this address, and it expires in ${INVITE_TTL_DAYS} days.`;
   const ignore = 'If you do not know them, ignore this email: nothing happens unless you accept.';
   return {
     to,
-    subject: `${owner} invited you to “${project}” on Aldine`,
-    text: `Hi there,\n\n${owner} invited you to the LaTeX project “${project}” on Aldine, a collaborative LaTeX editor.\n\n${how}\n\nAccept the invitation:\n${inviteUrl}\n\n${ignore}`,
-    html: `<p>Hi there,</p><p>${escapeHtml(owner)} invited you to the LaTeX project “${escapeHtml(project)}” on Aldine, a collaborative LaTeX editor.</p><p>${escapeHtml(how)}</p><p><a href="${escapeHtml(inviteUrl)}" style="display:inline-block;padding:10px 18px;background:#1f4fd1;color:#ffffff;border-radius:6px;text-decoration:none">Accept the invitation</a></p><p>${escapeHtml(ignore)}</p>`,
+    subject: `${owner} invited you to “${project}” on ${PRODUCT_NAME}`,
+    text: `Hi there,\n\n${owner} invited you to the LaTeX project “${project}” on ${PRODUCT_NAME}, ${PRODUCT_KIND}.\n\n${how}\n\nAccept the invitation:\n${inviteUrl}\n\n${ignore}`,
+    html: `<p>Hi there,</p><p>${escapeHtml(owner)} invited you to the LaTeX project “${escapeHtml(project)}” on ${PRODUCT_NAME}, ${PRODUCT_KIND}.</p><p>${escapeHtml(how)}</p><p><a href="${escapeHtml(inviteUrl)}" style="display:inline-block;padding:10px 18px;background:#1f4fd1;color:#ffffff;border-radius:6px;text-decoration:none">Accept the invitation</a></p><p>${escapeHtml(ignore)}</p>`,
   };
 }

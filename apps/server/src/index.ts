@@ -18,6 +18,8 @@ import { registrationConfigWarnings } from './oauth/registration.js';
 import { backfillMissingLastEdits, flushActivity } from './activity.js';
 import { discover, oidcBootLine, oidcConfig, oidcConfigWarnings, oidcLogoutWarning } from './oidc.js';
 import { startTemplatePreviews } from './templatepreviews.js';
+import { refuseForeignUpgrade } from './origin-check.js';
+import { sourceConfigWarnings } from './galley-source.js';
 
 // Never let a stray rejection take down the collaboration server.
 process.on('unhandledRejection', (reason) => { console.error('[aldine] unhandledRejection', reason); captureError(reason); });
@@ -35,7 +37,9 @@ initProjectEvents({ onAccessChanged: closeProjectConnections, onAccountEnded: cl
 
 const app = await buildApp();
 
-await app.listen({ port: config.port, host: '0.0.0.0' });
+// Galley: HOST picks the listen address (127.0.0.1 behind a tunnel on a host
+// with no firewall); unset keeps upstream's all-interfaces default.
+await app.listen({ port: config.port, host: process.env.HOST || '0.0.0.0' });
 // After listen: reading the shipped previews and hashing checkouts never delays it.
 startTemplatePreviews();
 
@@ -43,6 +47,9 @@ startTemplatePreviews();
 const wss = new WebSocketServer({ noServer: true });
 app.server.on('upgrade', (request, socket, head) => {
   if (isCollabUpgrade(request.url)) {
+    // Galley: the collab socket authenticates by the SameSite=Lax cookie, which
+    // sibling subdomains also send (origin-check.ts).
+    if (refuseForeignUpgrade(request.headers, socket)) return;
     wss.handleUpgrade(request, socket, head, (ws) => {
       hocuspocus.handleConnection(ws, request);
     });
@@ -55,6 +62,7 @@ console.log(`[aldine] server on :${config.port}${config.basePath} — data=${con
 for (const warning of signupConfigWarnings()) console.warn(warning);
 for (const warning of registrationConfigWarnings()) console.warn(warning);
 for (const warning of instance.warnings) console.warn(warning);
+for (const warning of sourceConfigWarnings()) console.warn(warning);
 if (AUTH_ENABLED) {
   for (const warning of oidcConfigWarnings()) console.warn(warning);
   const line = oidcBootLine();

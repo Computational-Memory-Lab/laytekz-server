@@ -407,7 +407,7 @@ export default {
               h('p', { style: { color: 'var(--text-2)', fontSize: '12px', lineHeight: '1.5', margin: '0' } },
                 'Paste a Zotero API key with library read access. ',
                 h('a', { href: 'https://www.zotero.org/settings/keys/new', target: '_blank', style: { color: 'var(--accent)' } }, 'Create one'),
-                '. Aldine keeps it for your other projects and never shows it again.'),
+                '. Laytekz keeps it for your other projects and never shows it again.'),
               h('input', {
                 class: 'input',
                 type: 'password',

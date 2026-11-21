@@ -63,6 +63,9 @@ export default defineConfig({
       '/oauth/register': 'http://localhost:3000',
       '/oauth/revoke': 'http://localhost:3000',
       '/.well-known': 'http://localhost:3000',
+      // Galley: server-rendered pages (privacy.ts, galley-source.ts)
+      '/privacy': 'http://localhost:3000',
+      '^/source(\\.tar\\.gz)?(\\?.*)?$': 'http://localhost:3000',
       '/collab': { target: 'ws://localhost:3000', ws: true },
     },
   },

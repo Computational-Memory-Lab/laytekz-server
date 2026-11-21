@@ -21,11 +21,12 @@ function prepaint(stored: string | null | Error, systemDark: boolean | 'no-match
 }
 
 describe('appearance', () => {
-  it('is dark when nothing, or nothing it knows, is stored', () => {
-    expect(parseAppearance(null)).toBe('dark');
-    expect(parseAppearance(undefined)).toBe('dark');
-    expect(parseAppearance('sepia')).toBe('dark');
+  it('follows the system when nothing, or nothing it knows, is stored', () => {
+    expect(parseAppearance(null)).toBe('system');
+    expect(parseAppearance(undefined)).toBe('system');
+    expect(parseAppearance('sepia')).toBe('system');
     expect(parseAppearance('light')).toBe('light');
+    expect(parseAppearance('dark')).toBe('dark');
     expect(parseAppearance('system')).toBe('system');
   });
 
@@ -57,8 +58,10 @@ describe('the pre-paint script in index.html', () => {
     });
   }
 
-  it('paints dark when storage is blocked or the system cannot be asked', () => {
-    expect(prepaint(new Error('SecurityError'), false).theme).toBe('dark');
+  it('follows the system when storage is blocked, and paints dark when the system cannot be asked', () => {
+    expect(prepaint(new Error('SecurityError'), false).theme).toBe('light');
+    expect(prepaint(new Error('SecurityError'), true).theme).toBe('dark');
     expect(prepaint('system' as Appearance, 'no-matchMedia').theme).toBe('dark');
+    expect(prepaint(null, 'no-matchMedia').theme).toBe('dark');
   });
 });

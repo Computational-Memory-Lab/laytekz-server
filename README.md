@@ -1,3 +1,5 @@
+> **Laytekz server.** This repository is the server for [Laytekz](https://github.com/Computational-Memory-Lab/laytekz), a modified fork of [Aldine](https://github.com/trahloff/Aldine). It is not affiliated with or endorsed by the Aldine project. It has been modified by the Computational Memory Lab since November 2026 and is licensed, like Aldine, under the AGPL-3.0. Every change the fork makes is listed in [GALLEY.md](GALLEY.md) ("Galley" is the fork's internal code name). Upstream's README follows unchanged.
+
 # [Aldine](https://aldine.dev)
 
 **Write LaTeX together. Fast, versioned, yours.**

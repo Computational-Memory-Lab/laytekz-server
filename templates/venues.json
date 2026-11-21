@@ -510,7 +510,7 @@
             "edits": [
               {
                 "find": "\nENTRY\n",
-                "replace": "\n% Aldine repaired this file when it created the project: as Wiley ships it,\n% BibTeX reports 164 errors on Wiley's own sample. What changed and why:\n% https://github.com/trahloff/Aldine/issues/172\nENTRY\n"
+                "replace": "\n% Laytekz repaired this file when it created the project: as Wiley ships it,\n% BibTeX reports 164 errors on Wiley's own sample. What changed and why:\n% https://github.com/trahloff/Aldine/issues/172\nENTRY\n"
               },
               {
                 "find": "  { label.year extra.label sort.year sort.label }",

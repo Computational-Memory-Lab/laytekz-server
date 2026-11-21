@@ -88,7 +88,7 @@ test.describe('the editor remembers, refuses and stays out of the way', () => {
       // what would only be refused is not offered: comments, the project's settings
       await expect(page.getByTestId('add-comment')).toHaveCount(0);
       await page.locator('.cm-line', { hasText: 'Showcase text.' }).dblclick();
-      await page.keyboard.press('ControlOrMeta+Shift+m');
+      await page.keyboard.press('ControlOrMeta+Shift+c');
       await page.getByTestId('tab-review').click();
       await expect(page.getByTestId('review-empty')).toHaveText('Comments are off on this read-only showcase.');
       await expect(page.getByTestId('comment-composer')).toHaveCount(0);

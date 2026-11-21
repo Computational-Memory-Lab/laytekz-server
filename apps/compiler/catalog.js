@@ -70,7 +70,8 @@ function run(cmd, args, timeoutMs = PROBE_TIMEOUT_MS) {
     let done = false;
     const finish = (ok) => { if (!done) { done = true; resolve({ ok, out }); } };
     const timer = setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* gone */ } finish(false); }, timeoutMs);
-    child.stdout.on('data', (d) => { out += d.toString('utf8'); });
+    // Galley: a bound on memory; tlmgr's whole-installation listing is well under it.
+    child.stdout.on('data', (d) => { if (out.length < 8 * 1024 * 1024) out += d.toString('utf8'); });
     child.on('error', () => { clearTimeout(timer); finish(false); });
     child.on('close', () => { clearTimeout(timer); finish(true); });
   });
@@ -211,8 +212,9 @@ const RETRY_MS = 30_000;
 /**
  * A good catalog is cached for the life of the process: the TeX installation
  * cannot change under it, and installing a package needs a restart anyway.
- * There is deliberately no refresh switch — the port is unauthenticated, and a
- * caller that could drop the cache could make every request spawn its own
+ * There is deliberately no refresh switch — the port may be unauthenticated
+ * (Galley: unless COMPILER_TOKEN is set), and a caller that could drop the
+ * cache could make every request spawn its own
  * kpsewhich and tlmgr sweep. A probe that did not run (ok:false) is held for
  * RETRY_MS instead, so a slow first boot does not become an empty gallery for
  * the life of the process.

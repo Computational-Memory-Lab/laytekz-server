@@ -40,7 +40,7 @@ eq(res.json().user.name, name, 'the account keeps the name it was given');
 
 const text = readable(await smtp.waitFor(1));
 eq(smtp.mails.length, 1, 'one sign-up mail was sent');
-check(/Welcome to Aldine/.test(text) && /https:\/\/aldine\.test\/\?confirm_email=[A-Za-z0-9_-]{20,}/.test(text), 'the mail is the welcome mail with the confirmation link');
+check(/Welcome to Laytekz/.test(text) && /https:\/\/aldine\.test\/\?confirm_email=[A-Za-z0-9_-]{20,}/.test(text), 'the mail is the welcome mail with the confirmation link');
 check(text.includes('someone@example.com'), 'the mail is addressed to the sign-up address');
 for (const part of ['evil.example', 'Reset your password', 'Mallory']) {
   check(!text.includes(part), `the mail carries nothing of the name (found ${JSON.stringify(part)})`);

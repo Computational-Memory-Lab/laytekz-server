@@ -43,8 +43,11 @@ function run(cmd, args, opts, timeoutMs) {
     const child = spawn(cmd, args, { ...opts });
     let out = '';
     const timer = setTimeout(() => { try { process.kill(-child.pid, 'SIGKILL'); } catch { try { child.kill('SIGKILL'); } catch {} } }, timeoutMs);
-    child.stdout.on('data', (d) => { out += d; });
-    child.stderr.on('data', (d) => { out += d; });
+    // Galley: callers read a version line or a path; a format build's own
+    // chatter is never read, so memory stays bounded whatever the preamble prints.
+    const collect = (d) => { if (out.length < 65_536) out += d; };
+    child.stdout.on('data', collect);
+    child.stderr.on('data', collect);
     child.on('close', (code) => { clearTimeout(timer); resolve({ code, out }); });
     child.on('error', (err) => { clearTimeout(timer); resolve({ code: -2, out: String(err) }); });
   });

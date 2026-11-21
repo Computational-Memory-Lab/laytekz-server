@@ -17,7 +17,7 @@ const loaded = (page: Page, testId: string) => page.getByTestId(testId).first().
 
 test('the operator shows beside Aldine on the sign-in page, the project list, the menu and About', async ({ page }) => {
   await page.goto(`${ORIGIN}${BASE}/`);
-  await expect(page).toHaveTitle(`Sign in – Aldine · ${NAME}`);
+  await expect(page).toHaveTitle(`Sign in – Laytekz · ${NAME}`);
   await expect(page.getByTestId('wordmark').first()).toBeVisible();
   const credit = page.getByTestId('operator-credit');
   await expect(credit).toContainText(`Provided by`);
@@ -49,7 +49,7 @@ test('the operator shows beside Aldine on the sign-in page, the project list, th
   await page.getByTestId(`oidc-persona-${p.code}`).click();
   await expect(page.getByTestId('new-project')).toBeVisible({ timeout: 15_000 });
 
-  await expect(page).toHaveTitle(`Projects – Aldine · ${NAME}`);
+  await expect(page).toHaveTitle(`Projects – Laytekz · ${NAME}`);
   const bar = page.getByTestId('home-bar');
   await expect(bar.getByTestId('wordmark')).toBeVisible();
   const badge = bar.getByTestId('operator');
@@ -64,7 +64,7 @@ test('the operator shows beside Aldine on the sign-in page, the project list, th
   await expect(page.getByTestId('get-help')).toHaveText('Get help…');
   await page.getByTestId('open-about').click();
   const about = page.getByTestId('about-modal');
-  await expect(about.getByRole('heading', { name: 'Aldine' })).toBeVisible();
+  await expect(about.getByRole('heading', { name: 'Laytekz' })).toBeVisible();
   await expect(about.getByTestId('about-operator')).toHaveText(`This instance is run by ${NAME}. For help, contact latex-help@example.org.`);
   await expect(about.getByTestId('about-source')).toBeVisible();
 });

@@ -1,5 +1,7 @@
 import type { ReactElement } from 'react';
 import type { RemoteProviderId } from './api';
+// Galley: tokens are named after the product on the git host's token page.
+import { PRODUCT_NAME } from './product';
 
 export type { RemoteProviderId } from './api';
 
@@ -52,7 +54,7 @@ export const REMOTES: Record<RemoteProviderId, RemoteDescriptor> = {
     changeRequest: 'pull request',
     tokenPlaceholder: 'GitHub token (needs repo scope)',
     tokenHelp: 'Create one on GitHub under Settings → Developer settings → Personal access tokens, with repo access.',
-    tokenPage: (base) => `${base || 'https://github.com'}/settings/tokens/new?scopes=repo&description=Aldine`,
+    tokenPage: (base) => `${base || 'https://github.com'}/settings/tokens/new?scopes=repo&description=${encodeURIComponent(PRODUCT_NAME)}`,
     tokenPageNote: ' with the repo scope already ticked.',
     repoTokenPage: { page: (base) => `${base || 'https://github.com'}/settings/personal-access-tokens/new`, note: ', choose only this repository and give it Contents: read and write.' },
     selfHosted: true,
@@ -68,7 +70,7 @@ export const REMOTES: Record<RemoteProviderId, RemoteDescriptor> = {
     changeRequest: 'merge request',
     tokenPlaceholder: 'GitLab token (needs api scope)',
     tokenHelp: 'Create one on your GitLab under Settings → Access tokens, with the api scope.',
-    tokenPage: (base) => `${base || 'https://gitlab.com'}/-/user_settings/personal_access_tokens?name=Aldine&scopes=api`,
+    tokenPage: (base) => `${base || 'https://gitlab.com'}/-/user_settings/personal_access_tokens?name=${encodeURIComponent(PRODUCT_NAME)}&scopes=api`,
     tokenPageNote: ' with the api scope already ticked.',
     selfHosted: true,
     baseUrlRequired: false,

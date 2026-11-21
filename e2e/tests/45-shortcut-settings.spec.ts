@@ -3,7 +3,7 @@ import { createProject, openProject, cleanup } from './helpers';
 
 const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
 const MOD_E = /⌘E|Ctrl\+E/;
-const DEFAULT_COMMENT = /⇧⌘M|Ctrl\+Shift\+M/;
+const DEFAULT_COMMENT = /⇧⌘C|Ctrl\+Shift\+C/;
 
 async function selectPlaceholder(page: Page) {
   const line = await page.locator('.cm-line').first().boundingBox();

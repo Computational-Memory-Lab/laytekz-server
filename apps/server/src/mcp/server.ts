@@ -39,7 +39,8 @@ export function createMcpServer(identity: McpIdentity, base: string): McpServer 
  */
 function presentedCredential(req: FastifyRequest): string | undefined {
   if (req.headers.authorization) return req.headers.authorization;
-  const alt = req.headers['x-aldine-token'];
+  // Galley: X-Laytekz-Token is the name the UI shows; upstream's header keeps working.
+  const alt = req.headers['x-laytekz-token'] ?? req.headers['x-aldine-token'];
   const raw = Array.isArray(alt) ? alt[0] : alt;
   return raw ? `Bearer ${raw.trim()}` : undefined;
 }

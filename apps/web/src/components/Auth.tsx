@@ -3,6 +3,9 @@ import { BASE_PATH, withBase } from '../basePath';
 import { api, ApiError, AuthUser, OAuthProviderInfo } from '../api';
 import Wordmark from './Wordmark';
 import { OperatorCredit, SupportLink } from './Operator';
+// Galley: Laytekz's product line, credit, source and privacy links (product.ts).
+import { SignInFinePrint } from './ProductCredit';
+import { PRODUCT_LINE } from '../product';
 import { INSTANCE } from '../instance';
 import { useDocumentTitle } from '../util/documentTitle';
 import { appSignInStarts, projectSignInStarts } from '../util/signInStart';
@@ -305,7 +308,7 @@ export function LoginScreen({ providers, passwordAuth, signupApproval, sendsEmai
     <main className="login">
       <div className="login__card">
         <h1 className="home__brand"><Wordmark height={21} /></h1>
-        <p className="login__tagline">Write LaTeX together. Fast, versioned, yours.</p>
+        <p className="login__tagline">{PRODUCT_LINE}</p>
         <h2 className="home__tag login__title">{title}</h2>
 
         {providers.map((p) => (
@@ -390,6 +393,7 @@ export function LoginScreen({ providers, passwordAuth, signupApproval, sendsEmai
           </>
         )}
         <OperatorCredit />
+        <SignInFinePrint />
       </div>
     </main>
   );

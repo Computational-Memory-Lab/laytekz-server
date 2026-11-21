@@ -1,0 +1,7 @@
+/* Galley: the wordmark carries live text (Wordmark.tsx), which the links that
+   hold it (home.css .home-bar__brand, Admin's .home__brand) would underline;
+   upstream's drawn wordmark had none to underline. */
+:is(a.home-bar__brand, a.home__brand),
+a:has(> [data-testid="wordmark"]) {
+  text-decoration: none;
+}

@@ -6,6 +6,8 @@ import 'pdfjs-dist/build/pdf.worker.min.mjs';
 import * as pdfjs from 'pdfjs-dist';
 import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist';
 import { App, applyHostStyleVariables, type McpUiHostContext } from '@modelcontextprotocol/ext-apps';
+// Galley: the product's own name (apps/server/src/product.ts).
+import { PRODUCT_NAME } from '../../src/product.js';
 
 // ---------------------------------------------------------------------------
 // Tool-result contract (apps/server/src/mcp/tools.ts, compile / get_pdf_url)
@@ -65,6 +67,8 @@ const zoomBtn = $<HTMLButtonElement>('[data-testid="viewer-zoom"]');
 const zoomIn = $<HTMLButtonElement>('[data-testid="viewer-zoom-in"]');
 const expandBtn = $<HTMLButtonElement>('[data-testid="viewer-expand"]');
 const openLink = $<HTMLAnchorElement>('[data-testid="viewer-open"]');
+document.title = `${PRODUCT_NAME} PDF viewer`;
+openLink.textContent = `Open in ${PRODUCT_NAME}`;
 
 // ---------------------------------------------------------------------------
 // Host bridge
@@ -278,7 +282,7 @@ function renderErrors(p: Payload): void {
   if (p.failureText) {
     const li = document.createElement('li');
     const row = span('row', '');
-    row.append(span('loc', 'Aldine'), span('msg', p.failureText));
+    row.append(span('loc', PRODUCT_NAME), span('msg', p.failureText));
     li.append(row);
     errorsList.append(li);
   }
@@ -293,7 +297,7 @@ function renderErrors(p: Payload): void {
       a.href = deepLinkTo(file, e.line);
       a.target = '_blank';
       a.rel = 'noopener noreferrer';
-      a.title = `Open ${loc} in Aldine`;
+      a.title = `Open ${loc} in ${PRODUCT_NAME}`;
       a.append(span('loc', loc), span('msg', msg));
       a.addEventListener('click', onLinkClick);
       li.append(a);
@@ -307,7 +311,7 @@ function renderErrors(p: Payload): void {
   if (total > errors.length) {
     const li = document.createElement('li');
     li.className = 'more';
-    li.textContent = `Showing the first ${errors.length} of ${total} — the full log is in Aldine.`;
+    li.textContent = `Showing the first ${errors.length} of ${total} — the full log is in ${PRODUCT_NAME}.`;
     errorsList.append(li);
   }
   setErrorsOpen(p.ok === false);
@@ -386,8 +390,8 @@ function hydrate(p: Payload): void {
   const lastLogLine = (p.logTail ?? '').split('\n').map((l) => l.trim()).filter(Boolean).pop();
   const hint = p.failureText ? undefined
     : n ? `Fix the ${n === 1 ? 'error' : `${n} errors`} above, then ask for a recompile.`
-    : lastLogLine ? `Aldine could not run the typesetter: ${lastLogLine} — open the project in Aldine and check the log.`
-    : 'Aldine could not run the typesetter — open the project in Aldine and check the log.';
+    : lastLogLine ? `${PRODUCT_NAME} could not run the typesetter: ${lastLogLine} — open the project in ${PRODUCT_NAME} and check the log.`
+    : `${PRODUCT_NAME} could not run the typesetter — open the project in ${PRODUCT_NAME} and check the log.`;
   if (!p.pdfUrl) {
     showNotice(title, hint);
     return;
@@ -428,10 +432,10 @@ async function loadPdf(url: string): Promise<void> {
     if (gen !== state.generation) return;
     if (!res.ok) {
       const expired = res.status === 403;
-      throw new Error(expired ? 'This PDF link has expired — ask Claude for a fresh link, or open the project in Aldine.' : `The PDF could not be fetched (HTTP ${res.status}).`);
+      throw new Error(expired ? `This PDF link has expired — ask Claude for a fresh link, or open the project in ${PRODUCT_NAME}.` : `The PDF could not be fetched (HTTP ${res.status}).`);
     }
     const declared = Number(res.headers.get('content-length') || 0);
-    if (declared > MAX_PDF_BYTES) throw new Error(`This PDF is ${fmtBytes(declared)} — too large to preview here. Open it in Aldine instead.`);
+    if (declared > MAX_PDF_BYTES) throw new Error(`This PDF is ${fmtBytes(declared)} — too large to preview here. Open it in ${PRODUCT_NAME} instead.`);
     const chunks: Uint8Array[] = [];
     let got = 0;
     const reader = res.body?.getReader();
@@ -446,7 +450,7 @@ async function loadPdf(url: string): Promise<void> {
         got += value.byteLength;
         if (got > MAX_PDF_BYTES) {
           await reader.cancel();
-          throw new Error('This PDF is over 50 MB — too large to preview here. Open it in Aldine instead.');
+          throw new Error(`This PDF is over 50 MB — too large to preview here. Open it in ${PRODUCT_NAME} instead.`);
         }
         showNotice('Loading the PDF…', fmtBytes(got), { spinner: true });
       }
@@ -459,8 +463,8 @@ async function loadPdf(url: string): Promise<void> {
     const msg = err instanceof Error ? err.message : String(err);
     const network = /fetch|network|load failed/i.test(msg) && !/HTTP|expired|large/.test(msg);
     root.dataset.state = 'error';
-    showNotice("Couldn't load the PDF", network ? 'The Aldine server did not answer, or the link has expired.' : msg,
-      state.payload?.deepLink ? { link: { href: state.payload.deepLink, label: 'Open in Aldine' } } : undefined);
+    showNotice("Couldn't load the PDF", network ? `The ${PRODUCT_NAME} server did not answer, or the link has expired.` : msg,
+      state.payload?.deepLink ? { link: { href: state.payload.deepLink, label: `Open in ${PRODUCT_NAME}` } } : undefined);
     return;
   }
 
@@ -487,7 +491,7 @@ async function loadPdf(url: string): Promise<void> {
     if (gen !== state.generation) return;
     root.dataset.state = 'error';
     showNotice("Couldn't render the PDF", err instanceof Error ? err.message : String(err),
-      state.payload?.deepLink ? { link: { href: state.payload.deepLink, label: 'Open in Aldine' } } : undefined);
+      state.payload?.deepLink ? { link: { href: state.payload.deepLink, label: `Open in ${PRODUCT_NAME}` } } : undefined);
   }
 }
 

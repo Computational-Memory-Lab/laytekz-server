@@ -10,6 +10,7 @@ import { usePopover } from '../util/usePopover';
 import { safeStorage } from '../util/safeStorage';
 import RemoteAccess from './RemoteAccess';
 import Modal from './Modal';
+import { PRODUCT_NAME } from '../product'; // Galley: the product's own name
 
 /** The branch pill of a project linked to a git host. The host's branches are
  *  the project's branches: local `main` tracks one of them, and push, pull
@@ -137,7 +138,7 @@ export default function RemoteSync({ projectId, link, autopush, isOwner, current
   // checkpoint, a message would name nothing, so there is none.
   const openPush = async () => {
     pop.close();
-    setMessage('Update from Aldine');
+    setMessage(`Update from ${PRODUCT_NAME}`);
     setBusy('push');
     const [changes, s] = await Promise.all([
       api.changes(projectId, 'main').catch(() => null),
@@ -419,7 +420,7 @@ export default function RemoteSync({ projectId, link, autopush, isOwner, current
           <p className="modal__sub" style={{ marginBottom: 10 }}>{link.fullName} · {tracked}</p>
           {pushInfo.pending > 0 && (
             <input className="input" style={{ width: '100%' }} value={message} data-testid="push-message"
-              onChange={(e) => setMessage(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) doPush(message.trim() || 'Update from Aldine'); }} placeholder="Commit message" />
+              onChange={(e) => setMessage(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) doPush(message.trim() || `Update from ${PRODUCT_NAME}`); }} placeholder="Commit message" />
           )}
           <p className="push-dialog__note" data-testid="push-summary">{pushSummary(pushInfo, manual, d.label)}</p>
           {!manual && (
@@ -430,7 +431,7 @@ export default function RemoteSync({ projectId, link, autopush, isOwner, current
           )}
           <div className="modal__row" style={{ marginTop: 12 }}>
             <button className="btn" onClick={() => setShowPush(false)}>Cancel</button>
-            <button ref={pushConfirm} className="btn btn--primary" onClick={() => doPush(message.trim() || 'Update from Aldine')} data-testid="push-confirm">{pushInfo.pending > 0 ? 'Commit & push' : 'Push'}</button>
+            <button ref={pushConfirm} className="btn btn--primary" onClick={() => doPush(message.trim() || `Update from ${PRODUCT_NAME}`)} data-testid="push-confirm">{pushInfo.pending > 0 ? 'Commit & push' : 'Push'}</button>
           </div>
         </Modal>
       )}

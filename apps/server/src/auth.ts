@@ -7,6 +7,7 @@ import * as mail from './email.js';
 import { providers, type OAuthProfile } from './oauth.js';
 import { DEFAULT_LABEL as OIDC_DEFAULT_LABEL } from './oidc.js';
 import { discardCodesForUser } from './oauth/codes.js';
+import { discardHandoffCodesForUser } from './desktop-handoff.js';
 import { subkey } from './output-signing.js';
 import { SESSION_DAYS, firstExpiry, renewIfDue } from './sessions.js';
 import { avatarVersion, removeAvatar } from './avatars.js';
@@ -607,6 +608,7 @@ export async function revokeUser(userId: string): Promise<void> {
 export async function revokeAgentAccess(userId: string): Promise<number> {
   const listed = (await db().listTokensForUser(userId)).filter((t) => !t.revokedAt).length;
   discardCodesForUser(userId);
+  discardHandoffCodesForUser(userId);
   await db().revokeCredentialsForUser(userId, new Date().toISOString());
   return listed;
 }
@@ -646,6 +648,7 @@ export async function disableAccount(userId: string, revokeAgents: boolean): Pro
   await db().setDisabled(userId, new Date(Math.max(Date.now(), createdAt + 1 || 0)).toISOString());
   await revokeUser(userId);
   discardCodesForUser(userId);
+  discardHandoffCodesForUser(userId);
   if (revokeAgents) await revokeAgentAccess(userId);
 }
 
@@ -683,6 +686,7 @@ export async function issueReset(userId: string): Promise<{ token: string; user:
 /** Remove the account and its credentials for good. */
 export async function deleteAccount(userId: string): Promise<void> {
   discardCodesForUser(userId);
+  discardHandoffCodesForUser(userId);
   await db().deleteUser(userId);
   removeAvatar(userId);
   await removeAllPersonalRepos(userId);

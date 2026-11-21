@@ -20,15 +20,15 @@ describe('instanceBase', () => {
 
 describe('tokenPage', () => {
   it('fills in the scope where the host allows it', () => {
-    expect(remoteDescriptor('github').tokenPage(undefined)).toBe('https://github.com/settings/tokens/new?scopes=repo&description=Aldine');
-    expect(remoteDescriptor('gitlab').tokenPage(undefined)).toBe('https://gitlab.com/-/user_settings/personal_access_tokens?name=Aldine&scopes=api');
-    expect(remoteDescriptor('gitlab').tokenPage('https://example.org/git')).toBe('https://example.org/git/-/user_settings/personal_access_tokens?name=Aldine&scopes=api');
+    expect(remoteDescriptor('github').tokenPage(undefined)).toBe('https://github.com/settings/tokens/new?scopes=repo&description=Laytekz');
+    expect(remoteDescriptor('gitlab').tokenPage(undefined)).toBe('https://gitlab.com/-/user_settings/personal_access_tokens?name=Laytekz&scopes=api');
+    expect(remoteDescriptor('gitlab').tokenPage('https://example.org/git')).toBe('https://example.org/git/-/user_settings/personal_access_tokens?name=Laytekz&scopes=api');
   });
 
   it('has a page for a one-repository token only where the host has one apart', () => {
     expect(remoteDescriptor('github').repoTokenPage?.page(undefined)).toBe('https://github.com/settings/personal-access-tokens/new');
     // GitHub Enterprise Server: the same pages on the instance
-    expect(remoteDescriptor('github').tokenPage('https://github.example.edu')).toBe('https://github.example.edu/settings/tokens/new?scopes=repo&description=Aldine');
+    expect(remoteDescriptor('github').tokenPage('https://github.example.edu')).toBe('https://github.example.edu/settings/tokens/new?scopes=repo&description=Laytekz');
     expect(remoteDescriptor('github').repoTokenPage?.page('https://github.example.edu')).toBe('https://github.example.edu/settings/personal-access-tokens/new');
     expect(remoteDescriptor('gitlab').repoTokenPage).toBeUndefined();
     expect(remoteDescriptor('gitea').repoTokenPage).toBeUndefined();

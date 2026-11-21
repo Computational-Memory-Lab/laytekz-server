@@ -9,6 +9,7 @@ import { registerClient } from './register.js';
 import { registrationMode, REGISTRATION_CLOSED_MESSAGE } from './registration.js';
 import { issueCode } from './codes.js';
 import { exchangeCode, refreshTokens, revokeToken, checkResource, param, type Params } from './token.js';
+import { CODE_CHALLENGE_RE } from './pkce.js';
 
 /**
  * Route wiring for the OAuth 2.1 authorization server. Everything 404s while
@@ -28,7 +29,6 @@ import { exchangeCode, refreshTokens, revokeToken, checkResource, param, type Pa
 /** RFC 7591 §3.2.1 body cap: registrations are a few hundred bytes. */
 const REGISTER_BODY_LIMIT = 8 * 1024;
 const TOKEN_BODY_LIMIT = 8 * 1024;
-const CODE_CHALLENGE_RE = /^[A-Za-z0-9_-]{43}$/;
 const STATE_MAX = 1024;
 
 type Reply = FastifyReply;

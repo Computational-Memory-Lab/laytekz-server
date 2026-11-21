@@ -7,6 +7,7 @@ import Modal from './Modal';
 import { useDialogs } from './Dialogs';
 import { addedEntries, invitationStatus, inviteSummary, isOrcidEntry, type InviteReport, type OwnerInvitation } from '../util/invites';
 import { outputSibling, type OutputFile } from '../util/outputFiles';
+import { PRODUCT_NAME } from '../product'; // Galley: the product's own name
 
 /** Mirrors the server's collaborator filter (the share route) so an address it
  *  would silently discard is reported here instead of vanishing on save. */
@@ -277,7 +278,7 @@ export default function ShareModal({ project, canManage = true, downloads, onClo
                 <a key={f.name} className="btn" href={f.url} download={f.name} title={f === bbl ? 'Download the bibliography the last typeset wrote' : 'Download the log of the last typeset'} data-testid={`download-${f.name.slice(f.name.lastIndexOf('.') + 1)}`}>{f.name}</a>
               ))}
             </div>
-            <p className="settings__hint">The ZIP holds every file on {downloads.branch}; it imports back into Aldine, or into Overleaf.{bbl && ` arXiv also needs ${bbl.name}, which the ZIP leaves out.`}</p>
+            <p className="settings__hint">The ZIP holds every file on {downloads.branch}; it imports back into {PRODUCT_NAME}, or into Overleaf.{bbl && ` arXiv also needs ${bbl.name}, which the ZIP leaves out.`}</p>
           </section>
         )}
 

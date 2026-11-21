@@ -7,6 +7,7 @@ import { useToast } from './Toast';
 import { IconPlus, IconRefresh, IconSearch, IconX } from './Icons';
 import { pickTemplate, templateToPost } from '../util/templates';
 import { ALL, galleryGroups, moveInGrid, railEntries, repoIdOf, shownTemplates } from '../util/templateChooser';
+import { PRODUCT_NAME } from '../product'; // Galley: the product's own name
 
 export interface NewProjectSheetProps {
   onClose: () => void;
@@ -266,7 +267,7 @@ export default function NewProjectSheet({ onClose, template: preselected, provis
       {chosen?.license ? ` (${chosen.license})` : ''}
       {manualKit
         ? `. ${manualKit.host} does not allow automated downloads: download the kit there, then import the ZIP.`
-        : chosen?.kit ? `. Aldine downloads the official kit from ${chosen.kit.host} when you create the project.` : ''}
+        : chosen?.kit ? `. ${PRODUCT_NAME} downloads the official kit from ${chosen.kit.host} when you create the project.` : ''}
     </>
   ) : null;
 

@@ -1,27 +1,36 @@
-import { SVGProps } from 'react';
-
-/** Width to height of the drawing below. */
-const RATIO = 2854 / 731;
+import type { CSSProperties, HTMLAttributes } from 'react';
+import { PRODUCT_NAME } from '../product';
+import LogoMark from './LogoMark';
+import './Wordmark.css';
 
 /**
- * The wordmark: "aldine" with the full stop in the accent. Drawn from
- * outlines, so it looks the same whatever fonts the reader has installed.
- * The glyphs are Geist SemiBold (SIL Open Font License 1.1), kerned and
- * tracked -0.035em. The master drawing is brand/wordmark.svg.
+ * Galley: Laytekz's wordmark, the mark followed by the name set in the UI
+ * typeface (theme.css --font-ui) in the current text colour, so it follows
+ * the theme. `height` is the mark's size; the name is sized to sit on it.
+ * Replaces upstream's drawn "aldine." wordmark (brand/wordmark.svg), which
+ * TRADEMARK.md reserves for Aldine itself.
  */
-export default function Wordmark({ height = 20, title = 'Aldine', ...rest }: SVGProps<SVGSVGElement> & { height?: number; title?: string }) {
+export default function Wordmark({ height = 20, title = PRODUCT_NAME, style, ...rest }: HTMLAttributes<HTMLSpanElement> & { height?: number; title?: string }) {
+  const box: CSSProperties = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: Math.round(height * 0.36),
+    height,
+    color: 'inherit',
+    whiteSpace: 'nowrap',
+    ...style,
+  };
+  const name: CSSProperties = {
+    fontFamily: 'var(--font-ui)',
+    fontSize: Math.round(height * 0.84),
+    fontWeight: 650,
+    letterSpacing: '-0.012em',
+    lineHeight: 1,
+  };
   return (
-    <svg
-      viewBox="39 -719 2854 731"
-      height={height}
-      width={Math.round(height * RATIO * 10) / 10}
-      role="img"
-      aria-label={title}
-      data-testid="wordmark"
-      {...rest}
-    >
-      <path fill="currentColor" d="M225 12Q141 12 90 -26Q39 -64 39 -134Q39 -203 82 -242Q125 -281 213 -298L390 -333Q390 -447 287 -447Q241 -447 214 -425.5Q187 -404 178 -364L48 -370Q64 -454 126 -500Q188 -546 287 -546Q401 -546 459.5 -488.5Q518 -431 518 -324V-130Q518 -109 525.5 -101Q533 -93 548 -93H565V0Q548 4 518 4Q475 4 445 -14Q415 -32 407 -81V-82Q387 -40 338.5 -14Q290 12 225 12ZM251 -81Q315 -81 352.5 -118Q390 -155 390 -216V-246L252 -218Q209 -209 190.5 -191.5Q172 -174 172 -146Q172 -81 251 -81ZM733 0Q674 0 639.5 -30Q605 -60 605 -126V-710H733V-139Q733 -99 773 -99H812V0ZM1049 12Q981 12 931.5 -22Q882 -56 855 -118.5Q828 -181 828 -267Q828 -352 855.5 -415Q883 -478 932.5 -512Q982 -546 1049 -546Q1105 -546 1147.5 -523Q1190 -500 1212 -458V-710H1340V0H1218L1215 -79Q1193 -36 1149 -12Q1105 12 1049 12ZM1088 -92Q1147 -92 1179.5 -137.5Q1212 -183 1212 -267Q1212 -352 1180 -397Q1148 -442 1088 -442Q1030 -442 995.5 -395.5Q961 -349 961 -267Q961 -187 995.5 -139.5Q1030 -92 1088 -92ZM1429 0V-534H1557V0ZM1427 -605V-719H1560V-605ZM1669 0V-534H1785L1788 -443Q1810 -498 1852.5 -522Q1895 -546 1948 -546Q2036 -546 2083 -489.5Q2130 -433 2130 -343V0H2002V-302Q2002 -370 1981.5 -406Q1961 -442 1909 -442Q1857 -442 1827 -406Q1797 -370 1797 -302V0ZM2453 12Q2373 12 2314 -22.5Q2255 -57 2223 -120Q2191 -183 2191 -267Q2191 -351 2223 -414Q2255 -477 2313.5 -511.5Q2372 -546 2450 -546Q2526 -546 2583 -512Q2640 -478 2671.5 -414Q2703 -350 2703 -260V-231H2324Q2327 -161 2362 -125.5Q2397 -90 2454 -90Q2541 -90 2565 -164L2696 -156Q2674 -78 2609.5 -33Q2545 12 2453 12ZM2324 -317H2571Q2566 -382 2533.5 -413.5Q2501 -445 2450 -445Q2398 -445 2365 -412Q2332 -379 2324 -317Z" />
-      <path fill="var(--accent)" d="M2747 0V-140H2893V0Z" />
-    </svg>
+    <span role="img" aria-label={title} data-testid="wordmark" style={box} {...rest}>
+      <LogoMark size={height} style={{ flex: 'none', display: 'block' }} />
+      <span aria-hidden="true" style={name}>{PRODUCT_NAME}</span>
+    </span>
   );
 }

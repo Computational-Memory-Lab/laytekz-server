@@ -4,15 +4,15 @@ import { moreAction, projectAction, trashAction } from './helpers';
 test.describe('home', () => {
   test('create a project from the home screen', async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByRole('img', { name: 'Aldine' })).toBeVisible();
-    await expect(page).toHaveTitle('Projects – Aldine');
+    await expect(page.getByRole('img', { name: 'Laytekz' })).toBeVisible();
+    await expect(page).toHaveTitle('Projects – Laytekz');
     await expect(page.getByRole('heading', { level: 1, name: 'Projects' })).toBeVisible();
     await page.getByTestId('new-project').click();
     await page.getByTestId('new-project-name').fill('My First Paper');
     await page.getByTestId('create-project').click();
     await expect(page.getByTestId('editor-shell')).toBeVisible();
     await expect(page.getByTestId('project-name')).toContainText('My First Paper');
-    await expect(page).toHaveTitle('My First Paper – Aldine');
+    await expect(page).toHaveTitle('My First Paper – Laytekz');
     // seeded files are present
     await expect(page.getByTestId('file-main.tex')).toBeVisible();
     await expect(page.getByTestId('file-references.bib')).toBeVisible();
@@ -116,6 +116,7 @@ test.describe('source offer', () => {
     await page.goto('/');
     await expect(page.getByTestId('colophon-source')).toHaveAttribute('href', 'https://github.com/trahloff/Aldine');
     await expect(page.getByTestId('colophon')).toContainText('AGPL-3.0');
+    await expect(page.getByTestId('colophon')).toContainText('Based on Aldine');
     await moreAction(page, 'open-about');
     const about = page.getByTestId('about-modal');
     await expect(about).toBeVisible();

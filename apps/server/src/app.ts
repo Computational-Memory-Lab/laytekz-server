@@ -7,6 +7,9 @@ import path from 'node:path';
 import { config } from './config.js';
 import { registerRoutes } from './routes.js';
 import { initObservability } from './observability.js';
+import { registerOriginCheck } from './origin-check.js';
+import { registerSourceRoute, stampSource } from './galley-source.js';
+import { PRODUCT_NAME } from './product.js'; // Galley: the product's own name
 
 const BASE = config.basePath;
 
@@ -109,15 +112,19 @@ export async function buildApp(): Promise<FastifyInstance> {
     rewriteUrl: (req) => rewriteUrl(req.url || '/'),
   });
 
+  // Galley: first onRequest hook, so a refused cross-origin request never
+  // reaches the session lookup (origin-check.ts).
+  registerOriginCheck(app);
   await initObservability(app);
   await registerRoutes(app);
+  registerSourceRoute(app);
   // MCP endpoint (agent connector), env-gated. Dynamic import keeps the SDK out
   // of the boot path entirely when the feature is off.
   if (process.env.ALDINE_MCP === '1') {
     const { registerMcp } = await import('./mcp/server.js');
     await registerMcp(app);
   }
-  if (BASE) app.get(ROOT_POINTER, async (_req, reply) => reply.type('text/plain').send(`Aldine is served at ${BASE}/\n`));
+  if (BASE) app.get(ROOT_POINTER, async (_req, reply) => reply.type('text/plain').send(`${PRODUCT_NAME} is served at ${BASE}/\n`));
 
   // Serve the built frontend (production). In dev, Vite serves it and proxies to us.
   const indexFile = path.join(config.webDist, 'index.html');
@@ -128,7 +135,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     const sendIndex = (_req: unknown, reply: FastifyReply) => reply
       .header('content-security-policy', "frame-ancestors 'none'")
       .header('x-frame-options', 'DENY')
-      .type('text/html').send(stampInstance(indexHtml));
+      .type('text/html').send(stampSource(stampInstance(indexHtml)));
     // The raw index.html never goes on the wire: '/' has its own route, the
     // static plugin is told not to serve directory indexes or the file itself,
     // and every other app route lands in the not-found fallback below.

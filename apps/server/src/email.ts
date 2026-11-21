@@ -8,6 +8,9 @@
  *   - neither       → log the message (dev / self-host relay).
  */
 
+// Galley: mails name the product by its own name (product.ts).
+import { PRODUCT_NAME } from './product.js';
+
 export interface Mail {
   to: string;
   subject: string;
@@ -21,7 +24,7 @@ export function emailConfigured(): boolean {
 
 /** e.g. "Aldine <no-reply@aldine.example.com>" or a bare address. */
 function fromAddress(): string {
-  return process.env.SES_FROM || process.env.SMTP_FROM || `Aldine <no-reply@localhost>`;
+  return process.env.SES_FROM || process.env.SMTP_FROM || `${PRODUCT_NAME} <no-reply@localhost>`;
 }
 
 let sesClient: any = null;
@@ -82,9 +85,9 @@ export function approvalRequestMail(to: string, account: string, signIn: string,
   const line = `${account} (signs in with ${signIn})`;
   return {
     to,
-    subject: 'A new Aldine account is waiting for approval',
-    text: `A new account on the Aldine server at ${instance} is waiting for approval:\n\n${line}\n\nApprove or delete it on the admin page:\n${adminLink}\n\nYou get this email because your address is on ALDINE_ADMIN_EMAILS.`,
-    html: `<p>A new account on the Aldine server at ${escapeHtml(instance)} is waiting for approval:</p><p><strong>${escapeHtml(line)}</strong></p><p><a href="${escapeHtml(adminLink)}">Approve or delete it on the admin page</a>.</p><p>You get this email because your address is on ALDINE_ADMIN_EMAILS.</p>`,
+    subject: `A new ${PRODUCT_NAME} account is waiting for approval`,
+    text: `A new account on the ${PRODUCT_NAME} server at ${instance} is waiting for approval:\n\n${line}\n\nApprove or delete it on the admin page:\n${adminLink}\n\nYou get this email because your address is on ALDINE_ADMIN_EMAILS.`,
+    html: `<p>A new account on the ${PRODUCT_NAME} server at ${escapeHtml(instance)} is waiting for approval:</p><p><strong>${escapeHtml(line)}</strong></p><p><a href="${escapeHtml(adminLink)}">Approve or delete it on the admin page</a>.</p><p>You get this email because your address is on ALDINE_ADMIN_EMAILS.</p>`,
   };
 }
 
@@ -92,9 +95,9 @@ export function approvalRequestMail(to: string, account: string, signIn: string,
 export function approvedMail(to: string, instance: string, link: string): Mail {
   return {
     to,
-    subject: 'Your Aldine account is approved',
-    text: `Hi there,\n\nAn administrator approved your account on the Aldine server at ${instance}. You can sign in now:\n${link}`,
-    html: `<p>Hi there,</p><p>An administrator approved your account on the Aldine server at ${escapeHtml(instance)}. <a href="${escapeHtml(link)}">Sign in now</a>.</p>`,
+    subject: `Your ${PRODUCT_NAME} account is approved`,
+    text: `Hi there,\n\nAn administrator approved your account on the ${PRODUCT_NAME} server at ${instance}. You can sign in now:\n${link}`,
+    html: `<p>Hi there,</p><p>An administrator approved your account on the ${PRODUCT_NAME} server at ${escapeHtml(instance)}. <a href="${escapeHtml(link)}">Sign in now</a>.</p>`,
   };
 }
 
@@ -103,8 +106,8 @@ export function approvedMail(to: string, instance: string, link: string): Mail {
 export function resetMail(to: string, link: string, token: string): Mail {
   return {
     to,
-    subject: 'Reset your Aldine password',
-    text: `Someone requested a password reset for your Aldine account.\n\nOpen this link to set a new password (expires in 1 hour):\n${link}\n\nOr enter this token manually: ${token}\n\nIf you didn't request this, you can ignore this email.`,
-    html: `<p>Someone requested a password reset for your Aldine account.</p><p><a href="${link}">Set a new password</a> (expires in 1 hour).</p><p>Or enter this token manually: <code>${token}</code></p><p>If you didn't request this, you can ignore this email.</p>`,
+    subject: `Reset your ${PRODUCT_NAME} password`,
+    text: `Someone requested a password reset for your ${PRODUCT_NAME} account.\n\nOpen this link to set a new password (expires in 1 hour):\n${link}\n\nOr enter this token manually: ${token}\n\nIf you didn't request this, you can ignore this email.`,
+    html: `<p>Someone requested a password reset for your ${PRODUCT_NAME} account.</p><p><a href="${link}">Set a new password</a> (expires in 1 hour).</p><p>Or enter this token manually: <code>${token}</code></p><p>If you didn't request this, you can ignore this email.</p>`,
   };
 }

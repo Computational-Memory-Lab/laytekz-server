@@ -5,6 +5,8 @@
  * off one issuer = publicBase(req).
  */
 
+import { PRODUCT_NAME } from '../product.js'; // Galley: the product's own name
+
 export const SCOPE = 'projects';
 
 /** Canonical resource identifier of the MCP server (RFC 8707): `<issuer>/mcp`. */
@@ -30,7 +32,7 @@ export function protectedResourceMetadata(issuer: string) {
     authorization_servers: [issuer],
     bearer_methods_supported: ['header'],
     scopes_supported: [SCOPE],
-    resource_name: 'Aldine',
+    resource_name: PRODUCT_NAME,
   };
 }
 

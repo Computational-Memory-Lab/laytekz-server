@@ -17,7 +17,8 @@ export type ShortcutId = 'typeset' | 'comment' | 'jump' | 'palette' | 'search';
 export const SHORTCUTS: readonly { id: ShortcutId; label: string; chord: Chord }[] = [
   { id: 'typeset', label: 'Typeset', chord: { mod: true, shift: false, alt: false, key: 's' } },
   // Shift, not Alt: Ctrl+Alt is AltGr on German Windows keyboards.
-  { id: 'comment', label: 'Comment on the selection', chord: { mod: true, shift: true, alt: false, key: 'm' } },
+  // Galley: ⇧⌘C / Ctrl+Shift+C, the owner's choice (upstream used M).
+  { id: 'comment', label: 'Comment on the selection', chord: { mod: true, shift: true, alt: false, key: 'c' } },
   { id: 'jump', label: 'Jump the PDF to the cursor', chord: { mod: true, shift: false, alt: false, key: 'j' } },
   { id: 'palette', label: 'Command palette', chord: { mod: true, shift: false, alt: false, key: 'k' } },
   { id: 'search', label: 'Search the project', chord: { mod: true, shift: true, alt: false, key: 'f' } },

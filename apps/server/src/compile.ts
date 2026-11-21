@@ -6,6 +6,7 @@ import { detectRoot } from './root.js';
 import { ensureWorktree } from './gitops.js';
 import { flushBranchDocs, signalAgentTypeset, signalTypesetFinished } from './collab.js';
 import { noteCompile } from './activity.js';
+import { compilerHeaders, invalidRootFile, rootFileRenameMessage } from './util.js';
 
 /** `context`: the source line TeX was reading when it failed (the compiler's
  *  parser reconstructs it from the log's "l.<n>" line). `source`: the tool
@@ -123,19 +124,70 @@ export class CompilerUnavailableError extends Error {
   }
 }
 
-/** POST to the compiler, mapping "no answer" to CompilerUnavailableError. */
-async function compilerPost<T>(route: string, body: unknown): Promise<T> {
+/** Galley: the compiler refused this server's token (COMPILER_TOKEN missing
+ *  here, or different from the compiler's). A configuration fault, answered
+ *  like an unreachable compiler (503) with its own sentence. */
+export class CompilerAuthError extends CompilerUnavailableError {
+  constructor() {
+    super();
+    this.message = 'The typesetting service refused this server’s requests. Ask whoever runs this server to give the app and the compiler the same COMPILER_TOKEN.';
+  }
+}
+
+/** Galley: the compiler did not answer within the typeset's time budget. */
+class CompilerTimeoutError extends Error {}
+
+let authWarnedAt = 0;
+
+/** POST to the compiler, mapping "no answer" to CompilerUnavailableError.
+ *  `timeoutMs`: give up waiting after this long (CompilerTimeoutError). */
+async function compilerPost<T>(route: string, body: unknown, timeoutMs?: number): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(`${config.compilerUrl}${route}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-  } catch {
+    res = await fetch(`${config.compilerUrl}${route}`, {
+      method: 'POST',
+      headers: compilerHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify(body),
+      ...(timeoutMs !== undefined ? { signal: AbortSignal.timeout(Math.max(1, timeoutMs)) } : {}),
+    });
+  } catch (err) {
+    if (timeoutMs !== undefined && (err as Error)?.name === 'TimeoutError') throw new CompilerTimeoutError();
     throw new CompilerUnavailableError();
+  }
+  if (res.status === 401 || res.status === 403) {
+    // Once a minute at most: every typeset would log it otherwise.
+    if (Date.now() - authWarnedAt > 60_000) {
+      authWarnedAt = Date.now();
+      console.warn(`[aldine] the compiler at ${config.compilerUrl} refused the request (HTTP ${res.status}): COMPILER_TOKEN is ${process.env.COMPILER_TOKEN ? 'different from the compiler\'s' : 'not set for the app'}`);
+    }
+    throw new CompilerAuthError();
   }
   // The compiler answers its own refusals as 400 JSON; a 5xx is whatever
   // stands in front of it.
   if (res.status >= 500) throw new CompilerUnavailableError();
-  try { return (await res.json()) as T; } catch { throw new CompilerUnavailableError(); }
+  try { return (await res.json()) as T; } catch (err) {
+    if (timeoutMs !== undefined && (err as Error)?.name === 'TimeoutError') throw new CompilerTimeoutError();
+    throw new CompilerUnavailableError();
+  }
 }
+
+/**
+ * Galley: how long one typeset request may take from the moment it reaches
+ * this server, waiting for the branch's earlier typesets included, or null
+ * for no limit (upstream's behaviour). Behind a proxy that gives up on slow
+ * answers (Cloudflare: about 100 s) set COMPILE_DEADLINE_MS below that limit,
+ * so the person sees "timed out" from this server instead of the proxy's
+ * error page.
+ */
+function compileDeadlineMs(): number | null {
+  const v = Number(process.env.COMPILE_DEADLINE_MS);
+  return Number.isFinite(v) && v > 0 ? v : null;
+}
+
+/** Under this much budget left, a typeset is not started at all. */
+const MIN_TYPESET_MS = 3_000;
+/** What the compiler's answer may take to arrive after its own budget ends. */
+const ANSWER_GRACE_MS = 1_500;
 
 /**
  * Serialize compiles per project::branch so two clients can't run latexmk in
@@ -219,7 +271,7 @@ export function compilerInfo(): Promise<CompilerInfo> {
   compilerInfoInflight = (async () => {
     let value: CompilerInfo;
     try {
-      const res = await fetch(`${config.compilerUrl}/health`, { signal: AbortSignal.timeout(5_000) });
+      const res = await fetch(`${config.compilerUrl}/health`, { headers: compilerHeaders(), signal: AbortSignal.timeout(5_000) });
       const raw = (await res.json()) as { ok?: boolean; texlive?: { release?: unknown; scheme?: unknown } };
       const str = (v: unknown) => (typeof v === 'string' && v ? v : 'unknown');
       value = { ok: !!raw.ok, texlive: { release: str(raw.texlive?.release), scheme: str(raw.texlive?.scheme) } };
@@ -245,7 +297,10 @@ export function compileProject(projectId: string, branch: string, opts: { agent?
   if (closedBranches.has(key)) return Promise.reject(new Error('This branch is being deleted'));
   const prev = compileChain.get(key) || Promise.resolve();
   const request = ++lastRequest;
-  const result = prev.catch(() => undefined).then(() => runCompile(projectId, branch, !!opts.agent, !opts.clean && !!opts.draft, !!opts.clean, request));
+  // Galley: the deadline runs from now, so the wait behind earlier typesets counts.
+  const limit = compileDeadlineMs();
+  const deadline = limit === null ? null : { at: Date.now() + limit, limit };
+  const result = prev.catch(() => undefined).then(() => runCompile(projectId, branch, !!opts.agent, !opts.clean && !!opts.draft, !!opts.clean, request, deadline));
   // The chain tail must never reject (would surface as an unhandled rejection);
   // the caller gets `result` (which may reject and is awaited/handled by the route).
   const tail = result.catch(() => undefined).then(() => {
@@ -333,12 +388,15 @@ export function compileStatus(projectId: string, branch: string): CompileStatus 
   };
 }
 
-async function runCompile(projectId: string, branch: string, agent: boolean, draft: boolean, clean: boolean, request: number): Promise<CompileResult> {
+/** Galley: when a typeset must have answered by (`at`, epoch ms) and the limit it came from. */
+type Deadline = { at: number; limit: number } | null;
+
+async function runCompile(projectId: string, branch: string, agent: boolean, draft: boolean, clean: boolean, request: number, deadline: Deadline = null): Promise<CompileResult> {
   const key = `${projectId}::${branch}`;
   running.set(key, (running.get(key) ?? 0) + 1);
   let finished = false;
   try {
-    const result = await runCompileInner(projectId, branch, agent, draft, clean, request);
+    const result = await runCompileInner(projectId, branch, agent, draft, clean, request, deadline);
     lastRun.set(key, { result, finishedAt: Date.now(), agent });
     noteCompile(projectId, branch, result);
     finished = true;
@@ -355,7 +413,12 @@ async function runCompile(projectId: string, branch: string, agent: boolean, dra
   }
 }
 
-async function runCompileInner(projectId: string, branch: string, agent: boolean, draft: boolean, clean: boolean, request: number): Promise<CompileResult> {
+/** Galley: the one error row of a typeset this server stopped for time. */
+function timedOutRow(message: string): CompileError {
+  return { type: 'error', line: null, message };
+}
+
+async function runCompileInner(projectId: string, branch: string, agent: boolean, draft: boolean, clean: boolean, request: number, deadline: Deadline = null): Promise<CompileResult> {
   const meta = await readMeta(projectId);
   await ensureWorktree(projectId, branch);
   flushBranchDocs(projectId, branch);
@@ -372,22 +435,50 @@ async function runCompileInner(projectId: string, branch: string, agent: boolean
     meta.rootFile = root;
     await writeMeta(meta);
   }
+  // Galley: latexmk hands the main document's name to a shell. A stored name
+  // that breaks the rules (a project from before them, a file renamed through
+  // git or a pull) is refused with what to rename, before any typeset runs.
+  const badRoot = invalidRootFile(meta.rootFile);
+  if (badRoot) throw new Error(rootFileRenameMessage(meta.rootFile, badRoot));
 
   type Raw = Partial<Omit<CompileResult, 'pdfUrl'>> & { error?: string; pdfFresh?: boolean; synctexFresh?: boolean };
   const stopped = () => (stoppedUpTo.get(`${projectId}::${branch}`) ?? 0) >= request;
   // The SyncTeX file goes with the rest of the output.
   if (clean && !stopped()) lastSynctexId.delete(`${projectId}::${branch}`);
+  const seconds = (ms: number) => Math.round(ms / 1000);
+  const left = deadline ? deadline.at - Date.now() : Infinity;
+  const compileBody = {
+    projectDir: relProjectDir(projectId, branch),
+    rootFile: meta.rootFile,
+    engine: meta.engine,
+    haltOnError: !!meta.stopOnFirstError,
+    ...(draft ? { draft: true } : {}),
+    ...(clean ? { clean: true } : {}),
+    // Galley: the compiler stops on its own when the budget is spent.
+    ...(deadline ? { timeoutMs: Math.max(1, left - ANSWER_GRACE_MS) } : {}),
+  };
+  let raw: Raw;
   // A stop that came while this run waited for the one before ends it here.
-  const raw: Raw = stopped()
-    ? { ok: false, stopped: true, log: '', errors: [], durationMs: 0 }
-    : await compilerPost<Raw>('/compile', {
-      projectDir: relProjectDir(projectId, branch),
-      rootFile: meta.rootFile,
-      engine: meta.engine,
-      haltOnError: !!meta.stopOnFirstError,
-      ...(draft ? { draft: true } : {}),
-      ...(clean ? { clean: true } : {}),
-    });
+  if (stopped()) raw = { ok: false, stopped: true, log: '', errors: [], durationMs: 0 };
+  else if (deadline && left < MIN_TYPESET_MS) {
+    raw = { ok: false, timedOut: true, exitCode: -1, log: '', durationMs: 0, errors: [timedOutRow(`This typeset waited ${seconds(deadline.limit - left)} s for this branch’s earlier typesets and was not started: the time limit for one typeset on this server is ${seconds(deadline.limit)} s. Typeset again.`)] };
+  } else {
+    try {
+      raw = await compilerPost<Raw>('/compile', compileBody, deadline ? left + 2 * ANSWER_GRACE_MS : undefined);
+      // The compiler names the budget it was given, which is less than the
+      // deadline by whatever this typeset spent waiting; say it the person's way.
+      const first = Array.isArray(raw.errors) ? raw.errors[0] : undefined;
+      if (deadline && raw.timedOut && first && /^Typesetting was stopped after \d+ s/.test(first.message)) {
+        const waited = deadline.limit - left;
+        raw.errors![0] = timedOutRow(`Typesetting was stopped: this server answers a typeset within ${seconds(deadline.limit)} s${waited >= 1000 ? `, and this one first waited ${seconds(waited)} s for this branch’s earlier typesets` : ''}. A document that never finishes (a macro that calls itself, a loop without an end) stops here, and so does one that needs longer than that.`);
+      }
+    } catch (err) {
+      if (!(err instanceof CompilerTimeoutError)) throw err;
+      // A compiler that does not honour timeoutMs: end the run there too.
+      compilerPost('/stop', { projectDir: compileBody.projectDir }, 5_000).catch(() => {});
+      raw = { ok: false, timedOut: true, exitCode: -1, log: '', durationMs: deadline!.limit, errors: [timedOutRow(`Typesetting was stopped: this server answers a typeset within ${seconds(deadline!.limit)} s, and the typesetting service had not finished by then.`)] };
+    }
+  }
   // Normalize: the compiler may return a bare {ok:false,error} on a 4xx — always
   // hand the client a well-formed CompileResult so the UI never sees undefined fields.
   const body: Omit<CompileResult, 'pdfUrl' | 'pdfStale' | 'runId'> = {

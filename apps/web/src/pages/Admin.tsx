@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api, ApiError, AdminStats, AdminUserRow, type SupportSetting } from '../api';
 import { useAuth } from '../components/Auth';
 import Wordmark from '../components/Wordmark';
+import { PRODUCT_NAME } from '../product'; // Galley: the product's own name
 import AdminAccountDialog from '../components/AdminAccountDialog';
 import { useDocumentTitle } from '../util/documentTitle';
 
@@ -138,7 +139,7 @@ export default function Admin() {
       <div className="home__inner">
         <header className="home__bar">
           <div>
-            <Link className="home__brand" to="/" aria-label="Aldine, back to projects"><Wordmark height={18} /></Link>
+            <Link className="home__brand" to="/" aria-label={`${PRODUCT_NAME}, back to projects`}><Wordmark height={18} /></Link>
             <h1 className="home__tag admin__title">Server admin</h1>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>

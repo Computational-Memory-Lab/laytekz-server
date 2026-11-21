@@ -5,6 +5,7 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js';
 import { config } from '../config.js';
+import { PRODUCT_NAME } from '../product.js'; // Galley: the product's own name
 import * as store from '../store.js';
 import * as gitops from '../gitops.js';
 import * as usage from '../usage.js';
@@ -456,14 +457,14 @@ export function registerTools(server: McpServer, identity: McpIdentity, ctx: Too
   // which the sandbox would resolve against its own origin — a broken frame.
   // Either way the text result still carries the links.
   server.registerResource('pdf-viewer', PDF_VIEWER_URI, {
-    title: 'Aldine PDF viewer',
+    title: `${PRODUCT_NAME} PDF viewer`,
     description: 'Renders the typeset PDF from a compile or get_pdf_url result inline (MCP App).',
     mimeType: MCP_APP_MIME,
     ...(resourceMeta ? { _meta: resourceMeta } : {}),
   }, async (uri) => {
     const html = loadViewerHtml();
     if (html === null) {
-      throw new Error(`The PDF viewer is not built on this Aldine server (expected ${path.basename(PDF_VIEWER_ASSET)} under apps/server/assets — run the viewer build). The compile and get_pdf_url tools still return a PDF link.`);
+      throw new Error(`The PDF viewer is not built on this ${PRODUCT_NAME} server (expected ${path.basename(PDF_VIEWER_ASSET)} under apps/server/assets — run the viewer build). The compile and get_pdf_url tools still return a PDF link.`);
     }
     return { contents: [{ uri: uri.href, mimeType: MCP_APP_MIME, text: html, ...(resourceMeta ? { _meta: resourceMeta } : {}) }] };
   });
@@ -483,7 +484,7 @@ export function registerTools(server: McpServer, identity: McpIdentity, ctx: Too
     }
     if (/project not found/i.test(msg)) return fail(projectNotFound(ctx.project ?? ''));
     console.warn(`[aldine] mcp tool failed: ${msg}`);
-    return fail('The request failed on the Aldine server');
+    return fail(`The request failed on the ${PRODUCT_NAME} server`);
   };
 
   /** Result keys the viewer hydrates from — shared by compile and get_pdf_url. */
@@ -517,7 +518,7 @@ export function registerTools(server: McpServer, identity: McpIdentity, ctx: Too
 
   server.registerTool('ping', {
     ...annotate('Check the connection', READ),
-    description: 'Check that the Aldine connector is reachable and authenticated. If it fails, tell the user their Aldine instance is not responding or the connector needs reconnecting — do not go on to other tools.',
+    description: `Check that the ${PRODUCT_NAME} connector is reachable and authenticated. If it fails, tell the user their ${PRODUCT_NAME} instance is not responding or the connector needs reconnecting — do not go on to other tools.`,
   }, async () => ok({ ok: true, server: 'aldine', user: identity.user?.email ?? null }));
 
   server.registerTool('list_projects', {
@@ -850,7 +851,7 @@ export function registerTools(server: McpServer, identity: McpIdentity, ctx: Too
 
   server.registerTool('compile', {
     ...annotate('Typeset the project', { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }),
-    description: `Typeset the project with latexmk: parsed errors [{type,file,line,message,context?,source?}] (type "error" rows before "warning" rows, first ${MAX_RESULT_ERRORS}; errorsTotal counts the errors and warningsTotal the warnings, whether or not the list was capped; box warnings are omitted; context is the source line the engine was reading, source the tool that raised a warning — latex, a package name, biber — and a biber row names the .bib and its line), on failure ≤4 KB of the log around the first error, pages, and a deep link into Aldine. With errors present the PDF is complete but the bibliography and cross-references are not rebuilt — say so. pdfUrl is a signed link to this run's PDF that anyone can open for ${OUTPUT_URL_TTL_S / 60} minutes — hand it to the user as the way to see the result, and call get_pdf_url for a fresh link later instead of recompiling. pdfStale:true means this run wrote no PDF: pdfUrl shows the previous one, or is null when that no longer exists. Takes up to ~2 minutes; progress notifications arrive while it runs. Compile after a coherent set of edits, not after each one, and never just to check syntax. On errors: fix and recompile at most 3 times, narrating each attempt ("attempt 2 of 3: added natbib"), then stop and ask the user, quoting the failing file:line. A project with no .tex file cannot be typeset: write the main document first. A compiler-not-responding, compiler-cannot-see-the-project, missing-package (hint), quota, or typeset-already-running error is for the user to act on — relay it, do not retry.`,
+    description: `Typeset the project with latexmk: parsed errors [{type,file,line,message,context?,source?}] (type "error" rows before "warning" rows, first ${MAX_RESULT_ERRORS}; errorsTotal counts the errors and warningsTotal the warnings, whether or not the list was capped; box warnings are omitted; context is the source line the engine was reading, source the tool that raised a warning — latex, a package name, biber — and a biber row names the .bib and its line), on failure ≤4 KB of the log around the first error, pages, and a deep link into ${PRODUCT_NAME}. With errors present the PDF is complete but the bibliography and cross-references are not rebuilt — say so. pdfUrl is a signed link to this run's PDF that anyone can open for ${OUTPUT_URL_TTL_S / 60} minutes — hand it to the user as the way to see the result, and call get_pdf_url for a fresh link later instead of recompiling. pdfStale:true means this run wrote no PDF: pdfUrl shows the previous one, or is null when that no longer exists. Takes up to ~2 minutes; progress notifications arrive while it runs. Compile after a coherent set of edits, not after each one, and never just to check syntax. On errors: fix and recompile at most 3 times, narrating each attempt ("attempt 2 of 3: added natbib"), then stop and ask the user, quoting the failing file:line. A project with no .tex file cannot be typeset: write the main document first. A compiler-not-responding, compiler-cannot-see-the-project, missing-package (hint), quota, or typeset-already-running error is for the user to act on — relay it, do not retry.`,
     inputSchema: {
       project: projectParam,
       branch: branchParam,
@@ -958,7 +959,7 @@ export function registerTools(server: McpServer, identity: McpIdentity, ctx: Too
       // down"; a missing branch or project keeps its own answer.
       if (err instanceof TypeError || /fetch failed|ECONN|ENOTFOUND|EAI_AGAIN|abort|timed? ?out|Unexpected token|not valid JSON/i.test(msg)) {
         console.warn(`[aldine] agent compile could not reach the compiler: ${msg}`);
-        return fail('Typesetting failed to start — your Aldine compiler may not be responding');
+        return fail(`Typesetting failed to start — your ${PRODUCT_NAME} compiler may not be responding`);
       }
       return toolError(err, { project, branch });
     } finally {
@@ -1068,7 +1069,7 @@ export function registerTools(server: McpServer, identity: McpIdentity, ctx: Too
         // the write path and must not be blamed on the upstream.
         const msg = err instanceof Error ? err.message : '';
         if (/lookup failed|too large|HTTP/i.test(msg)) return fail(`Reference lookup failed: ${msg}`);
-        if (err instanceof TypeError || /fetch failed|abort|timed? ?out|ECONN|ENOTFOUND|EAI_AGAIN/i.test(msg)) return fail('The reference service (doi.org / arXiv / OpenAlex) could not be reached from your Aldine server');
+        if (err instanceof TypeError || /fetch failed|abort|timed? ?out|ECONN|ENOTFOUND|EAI_AGAIN/i.test(msg)) return fail(`The reference service (doi.org / arXiv / OpenAlex) could not be reached from your ${PRODUCT_NAME} server`);
         return toolError(err);
       }
       if (!added) return fail(`No reference found for "${query}" — pass a DOI (10.…), arXiv id or OpenAlex id; an id in the right shape that is still not found is not registered upstream, so check it with the user rather than retrying`);
@@ -1171,7 +1172,7 @@ export function registerTools(server: McpServer, identity: McpIdentity, ctx: Too
 
   server.registerTool('trash_project', {
     ...annotate('Move a project to the trash', { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true }),
-    description: `Move a project that was created with create_project to the trash, where its owner can restore it from the workspace for ${TRASH_DAYS} days; nothing in Aldine is deleted for good by this tool, but a GitLab repository Aldine provisioned for the project is deleted (a restore provisions a new one). Refused for any project a person created (agentCreated:false in list_projects) — ask them to delete it in Aldine themselves — and for projects the token's owner does not own. Use it for scratch projects the user asked you to throw away; never on your own initiative.`,
+    description: `Move a project that was created with create_project to the trash, where its owner can restore it from the workspace for ${TRASH_DAYS} days; nothing in ${PRODUCT_NAME} is deleted for good by this tool, but a GitLab repository ${PRODUCT_NAME} provisioned for the project is deleted (a restore provisions a new one). Refused for any project a person created (agentCreated:false in list_projects) — ask them to delete it in ${PRODUCT_NAME} themselves — and for projects the token's owner does not own. Use it for scratch projects the user asked you to throw away; never on your own initiative.`,
     inputSchema: { project: z.string().min(1).describe('Project id (from list_projects or create_project). Required: this tool never falls back to a scoped token\'s project.') },
   }, async ({ project }) => {
     try {

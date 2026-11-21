@@ -1,26 +1,33 @@
 import Modal from './Modal';
 import { INSTANCE } from '../instance';
+import { SOURCE_URL } from '../source';
 import { SupportLink } from './Operator';
+// Galley: About names Laytekz and credits Aldine (product.ts, ProductCredit.tsx).
+import { PRODUCT_LINE, PRODUCT_NAME, UPSTREAM_COPYRIGHT } from '../product';
+import { BasedOnAldine, PrivacyLink } from './ProductCredit';
+import LogoMark from './LogoMark';
 
 declare const __ALDINE_VERSION__: string;
 declare const __ALDINE_REV__: string;
 
-const SOURCE_URL = 'https://github.com/trahloff/Aldine';
-
 /**
  * AGPL section 13: anyone interacting with this instance over a network must be
  * offered the source of the version they are interacting with. That is what the
- * build stamp below is for — an operator running modified code has to point
- * SOURCE_URL at their own fork.
+ * build stamp below is for — an operator running modified code points
+ * SOURCE_URL at their own source (source.ts).
  */
 export default function About({ onClose }: { onClose: () => void }) {
   const rev = __ALDINE_REV__;
   return (
-    <Modal onClose={onClose} label="About Aldine" testId="about-modal" width={460}>
-      <h2>Aldine</h2>
+    <Modal onClose={onClose} label={`About ${PRODUCT_NAME}`} testId="about-modal" width={460}>
+      <h2 style={{ display: 'flex', alignItems: 'center', gap: 10 }}><LogoMark size={28} />{PRODUCT_NAME}</h2>
       <p className="modal__sub">
-        A slim, self-hosted LaTeX collaboration platform. Version {__ALDINE_VERSION__}
-        {rev ? <> · build <code>{rev}</code></> : null}
+        {PRODUCT_LINE}
+        {rev ? <> Build <code>{rev}</code>.</> : null}
+      </p>
+      <p className="modal__sub" data-testid="about-upstream">
+        <BasedOnAldine version={__ALDINE_VERSION__} />, with changes made for this site.
+        {' '}Aldine {UPSTREAM_COPYRIGHT}.
       </p>
       <p className="modal__sub">
         Licensed under the{' '}
@@ -29,6 +36,9 @@ export default function About({ onClose }: { onClose: () => void }) {
         </a>
         . You are entitled to the complete source of the version running here,
         including any changes this instance&rsquo;s operator has made to it.
+      </p>
+      <p className="modal__sub" data-testid="about-privacy">
+        What this site stores about you, and why: <PrivacyLink testId="about-privacy-link" />.
       </p>
       {INSTANCE && (INSTANCE.name || INSTANCE.support) && (
         <p className="modal__sub" data-testid="about-operator">

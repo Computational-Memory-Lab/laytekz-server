@@ -27,7 +27,7 @@ import Presence, { PresenceUser } from '../components/Presence';
 import { PluginHost, PluginPanel, type PluginErrorsAction, type PluginCommand, type PluginConfirm } from '../plugins/host';
 import { hintFor, offersUnicodeEngine } from '../editor/errorHints';
 import { unicodeFontPlan, type UnicodeFontPlan } from '../editor/unicodeFont';
-import { IconChevronDown, IconChevronLeft, IconChevronRight, IconComment, IconDownload, IconEllipsis, IconFiles, IconHistory, IconQuote, IconLayoutBoth, IconLayoutEditor, IconLayoutPdf, IconSearch, IconSidebar, IconToSource } from '../components/Icons';
+import { IconBook, IconChevronDown, IconChevronLeft, IconChevronRight, IconComment, IconDownload, IconEllipsis, IconFiles, IconHistory, IconQuote, IconLayoutBoth, IconLayoutEditor, IconLayoutPdf, IconSearch, IconSidebar, IconToSource } from '../components/Icons';
 import CommandPalette, { Command, PaletteTrigger } from '../components/CommandPalette';
 import ConnectClaudeModal from '../components/ClaudeConnect';
 import { invalidateBibCache, invalidateLabelCache } from '../editor/latexExtras';
@@ -73,6 +73,7 @@ import type { OutlineEntry } from '../editor/visual/outline';
 import { mainDocuments, setCompletionFiles } from '../editor/completions';
 import { SPELLCHECK, SPELLCHECK_LANG, spellLangKnown } from '../editor/spellcheck';
 import { LAYOUTS, readLayout, rememberLayout, revealLayout, shownLayout, type Layout } from '../util/layout';
+import { PRODUCT_NAME } from '../product'; // Galley: the product's own name
 
 type CompileStatus = 'idle' | 'compiling' | 'ok' | 'error';
 /** `outdated`: the branch's last run, shown on open until a typeset brings
@@ -88,9 +89,9 @@ const AGENT_REVIEW_MAX_COMMITS = 20;
 
 /** The plugin panels with a sidebar tab of their own, beside Files, Search,
  *  History and Review; every other one sits in the More menu. */
-const PINNED_PANELS = ['plugin:references'];
+const PINNED_PANELS = ['plugin:references', 'plugin:zotero'];
 /** A pinned panel's tab is an icon, like every tab in the row. */
-const PINNED_ICONS: Record<string, typeof IconQuote> = { 'plugin:references': IconQuote };
+const PINNED_ICONS: Record<string, typeof IconQuote> = { 'plugin:references': IconQuote, 'plugin:zotero': IconBook };
 const SIDEBAR_HIDDEN = 'aldine.sidebarHidden';
 /** The sidebar's width in px, once someone has dragged it. */
 const SIDEBAR_WIDTH = 'aldine.sidebarWidth';
@@ -1755,7 +1756,7 @@ export default function Editor() {
         },
       },
       { id: 'share', group: 'Project', title: 'Share or download the PDF…', run: () => setShareOpen(true) },
-      { id: 'about', group: 'View', title: 'About Aldine and its source code', run: () => setAboutOpen(true) },
+      { id: 'about', group: 'View', title: `About ${PRODUCT_NAME} and its source code`, run: () => setAboutOpen(true) },
       { id: 'connect-claude', group: 'View', title: 'Connect Claude or ChatGPT (MCP connector)…', run: () => setConnectOpen(true) },
       ...(visualFile
         ? [{ id: 'mode', group: 'View', title: mode === 'visual' ? 'Switch to Source editing' : 'Switch to Visual editing', run: () => switchMode(mode === 'visual' ? 'source' : 'visual') }]

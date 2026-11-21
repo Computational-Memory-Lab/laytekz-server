@@ -9,6 +9,7 @@ import Modal from './Modal';
 import { friendlyDate } from '../util/dates';
 import { ClaudeConnectSteps, useConnectorUrl } from './ClaudeConnect';
 import LoadError from './LoadError';
+import { PRODUCT_NAME } from '../product'; // Galley: the product's own name
 
 /** The git host accounts this user connected, each with Disconnect. A
  *  replacement token is entered where it is used: Clone from a host, or a
@@ -145,7 +146,7 @@ function ZoteroKey() {
   const forget = async () => {
     try {
       await api.forgetZoteroKey();
-      toast('Aldine no longer keeps your Zotero key. Projects linked with it keep syncing until you unlink them.', 'ok');
+      toast(`${PRODUCT_NAME} no longer keeps your Zotero key. Projects linked with it keep syncing until you unlink them.`, 'ok');
       load();
     } catch (err: any) { toast(err.message, 'error'); }
   };
@@ -154,7 +155,7 @@ function ZoteroKey() {
       <div className="menu__label" style={{ margin: '18px 0 6px' }}>Zotero</div>
       {failed && <LoadError text="Couldn’t load your Zotero key." onRetry={load} testId="account-zotero-error" />}
       {!failed && key && !key.saved && (
-        <p style={{ color: 'var(--text-2)', fontSize: 'var(--text-m)', margin: 0 }} data-testid="account-zotero-none">No Zotero key saved. Paste one in a project’s Zotero panel; Aldine keeps it here for your other projects.</p>
+        <p style={{ color: 'var(--text-2)', fontSize: 'var(--text-m)', margin: 0 }} data-testid="account-zotero-none">No Zotero key saved. Paste one in a project’s Zotero panel; {PRODUCT_NAME} keeps it here for your other projects.</p>
       )}
       {!failed && key?.saved && (
         <div className="settings__row" data-testid="account-zotero-saved">
@@ -423,7 +424,7 @@ function AgentAccess({ onSecret }: { onSecret?: (shown: boolean) => void }) {
 
       <div className="menu__label" style={{ margin: '14px 0 6px' }}>Access tokens for scripts</div>
       <p style={{ color: 'var(--text-2)', fontSize: 'var(--text-m)', margin: '0 0 10px' }}>
-        For scripts and anything without a Connect button: send a token as the Authorization bearer or the X-Aldine-Token header.
+        For scripts and anything without a Connect button: send a token as the Authorization bearer or the X-Laytekz-Token header.
       </p>
 
       {minted && (
@@ -444,7 +445,7 @@ function AgentAccess({ onSecret }: { onSecret?: (shown: boolean) => void }) {
             <button className="btn btn--primary btn--small" onClick={() => copy(minted, 'Token', 'token')} data-testid="agent-token-copy">Copy token</button>
             <button className="btn btn--small" onClick={() => setMinted(null)} data-testid="agent-token-done">Done</button>
           </div>
-          <p style={{ color: 'var(--text-3)', fontSize: 'var(--text-s)', margin: 0 }}>Send it as <code>Authorization: Bearer …</code> or in an <code>X-Aldine-Token</code> header to {connectorUrl}. Claude connectors don’t need a token — use Connect.</p>
+          <p style={{ color: 'var(--text-3)', fontSize: 'var(--text-s)', margin: 0 }}>Send it as <code>Authorization: Bearer …</code> or in an <code>X-Laytekz-Token</code> header to {connectorUrl}. Claude connectors don’t need a token — use Connect.</p>
         </div>
       )}
 
@@ -652,7 +653,7 @@ function CommitEmailRow({ user }: { user: AuthUser }) {
       </div>
       {error
         ? <p className="field__error" role="alert" data-testid="account-commit-email-error">{error}</p>
-        : <p className="login__hint" id="account-commit-email-hint">Commits Aldine makes for you carry this address, so GitHub or GitLab can link them to your profile. Use your host’s noreply address to keep your own private. Leave it empty to stop.</p>}
+        : <p className="login__hint" id="account-commit-email-hint">Commits {PRODUCT_NAME} makes for you carry this address, so GitHub or GitLab can link them to your profile. Use your host’s noreply address to keep your own private. Leave it empty to stop.</p>}
     </form>
   );
 }

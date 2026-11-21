@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { config } from './config.js';
+import { compilerHeaders, invalidRootFile } from './util.js';
 import { BLANK_TEMPLATE, applyPlaceholders, listTemplates, templateFiles, type TemplateInfo } from './templates.js';
 import { REPO_PREFIX, listRepoTemplates, onTemplateRepoSynced } from './templaterepos.js';
 import { guessRoot } from './root.js';
@@ -300,6 +301,9 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export async function typesetPage1(files: Record<string, Buffer>, label: string): Promise<{ bytes: Buffer; w: number; h: number; v: string } | { error: string }> {
   const root = guessRoot(files);
   if (!root) return { error: 'no root .tex' };
+  // Galley: the compiler refuses such a name; say why here instead.
+  const badRoot = invalidRootFile(root);
+  if (badRoot) return { error: `the root file of ${label} cannot be typeset: ${badRoot}` };
   const work = path.join(workRoot(), crypto.randomBytes(8).toString('hex'));
   try {
     for (const [rel, bytes] of Object.entries(files)) {
@@ -310,7 +314,7 @@ export async function typesetPage1(files: Record<string, Buffer>, label: string)
     }
     const res = await fetch(`${config.compilerUrl}/compile`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: compilerHeaders({ 'content-type': 'application/json' }),
       body: JSON.stringify({ projectDir: path.relative(config.dataDir, work), rootFile: root, engine: detectEngine(files, root).engine }),
       signal: AbortSignal.timeout(COMPILE_TIMEOUT_MS),
     });
@@ -384,7 +388,7 @@ function queueRenders(repoId: string, todo: Keyed[]): Promise<void> {
 /** Whether the compiler can render page 1 at all ('none' without gs or pdftoppm). */
 async function compilerRenders(): Promise<boolean> {
   try {
-    const res = await fetch(`${config.compilerUrl}/health`, { signal: AbortSignal.timeout(5_000) });
+    const res = await fetch(`${config.compilerUrl}/health`, { headers: compilerHeaders(), signal: AbortSignal.timeout(5_000) });
     const raw = (await res.json()) as { ok?: boolean; thumbnails?: string };
     return !!raw.ok && raw.thumbnails !== 'none';
   } catch {

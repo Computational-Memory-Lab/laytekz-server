@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { metaDir } from './config.js';
+import { productTitle } from './product.js';
 
 /**
  * Who runs this instance, for the people using it: the operator's name, logo,
@@ -158,6 +159,7 @@ const escAttr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').
 export function stampInstance(html: string, i: InstanceInfo = currentInstance()): string {
   if (!instanceConfigured(i)) return html;
   let out = html.replace('<head>', `<head>\n    <meta name="aldine-instance" content="${escAttr(JSON.stringify(i))}" />`);
-  if (i.name) out = out.replace(/<title>Aldine<\/title>/, `<title>Aldine · ${escAttr(i.name)}</title>`);
+  // Galley: the product's own name, then the operator's (product.ts).
+  if (i.name) out = out.replace(/<title>[^<]*<\/title>/, `<title>${escAttr(productTitle(i.name))}</title>`);
   return out;
 }

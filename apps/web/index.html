@@ -7,16 +7,17 @@
     <meta name="robots" content="noindex" />
     <meta name="color-scheme" content="dark light" />
     <meta name="theme-color" content="#1c1c1e" />
-    <title>Aldine</title>
-    <!-- Apply the appearance before first paint. Dark is the default; a stored
-         choice wins, and "system" asks the operating system. Mirrors theme.ts. -->
+    <!-- The product name: src/product.ts PRODUCT_NAME (src/__tests__/product.test.ts checks it) -->
+    <title>Laytekz</title>
+    <!-- Apply the appearance before first paint. A stored light or dark choice
+         wins; anything else follows the operating system. Mirrors theme.ts. -->
     <script data-prepaint>
       (function () {
         var a = null;
         try { a = window.localStorage.getItem('aldine.theme'); } catch (e) {}
         var t = 'dark';
         if (a === 'light') t = 'light';
-        else if (a === 'system') {
+        else if (a !== 'dark') {
           try { t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; } catch (e) {}
         }
         document.documentElement.dataset.theme = t;
@@ -24,7 +25,8 @@
         if (m) m.setAttribute('content', t === 'light' ? '#f5f5f7' : '#1c1c1e');
       })();
     </script>
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%23111113'/><path fill='%23f5f5f7' transform='matrix(0.09 0 0 0.09 15.5 72.5)' d='M225 12Q141 12 90 -26Q39 -64 39 -134Q39 -203 82 -242Q125 -281 213 -298L390 -333Q390 -447 287 -447Q241 -447 214 -425.5Q187 -404 178 -364L48 -370Q64 -454 126 -500Q188 -546 287 -546Q401 -546 459.5 -488.5Q518 -431 518 -324V-130Q518 -109 525.5 -101Q533 -93 548 -93H565V0Q548 4 518 4Q475 4 445 -14Q415 -32 407 -81V-82Q387 -40 338.5 -14Q290 12 225 12ZM251 -81Q315 -81 352.5 -118Q390 -155 390 -216V-246L252 -218Q209 -209 190.5 -191.5Q172 -174 172 -146Q172 -81 251 -81Z'/><circle cx='78' cy='65' r='7.5' fill='%235b8cff'/></svg>" />
+    <!-- The product's mark, drawn as in src/components/LogoMark.tsx -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='3 3 26 26'><rect x='3.125' y='3.125' width='25.75' height='25.75' rx='6' fill='%232a2c32'/><path d='M10 28.875V6a.75.75 0 0 1 .75-.75h10.5A.75.75 0 0 1 22 6v22.875Z' fill='%23f6f3ec'/><g fill='%2333363d'><rect x='12' y='8' width='8' height='2' rx='.6'/><rect x='12' y='12' width='4' height='2' rx='.6'/><rect x='18' y='12' width='2' height='2' rx='.6'/><rect x='14' y='20' width='6' height='2' rx='.6'/><rect x='12' y='24' width='8' height='2' rx='.6'/></g><path d='M14.6 18.2 17 15.2l2.4 3' fill='none' stroke='%23ef4a3a' stroke-width='1.7' stroke-linecap='round'/><rect x='3.5' y='3.5' width='25' height='25' rx='5.6' fill='none' stroke='%23fff' stroke-opacity='.14' stroke-width='.75'/></svg>" />
   </head>
   <body>
     <div id="root"></div>

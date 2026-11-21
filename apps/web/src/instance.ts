@@ -1,9 +1,10 @@
 import { withBase } from './basePath';
+import { isProductName } from './product';
 
 /**
  * Who runs this instance (server: instance.ts, ALDINE_INSTANCE_* and
- * ALDINE_SUPPORT), stamped into index.html. Shown beside Aldine's own name,
- * never instead of it. null when the operator set none of it.
+ * ALDINE_SUPPORT), stamped into index.html. Shown beside the product's own
+ * name, never instead of it. null when the operator set none of it.
  */
 export interface InstanceInfo {
   name: string | null;
@@ -21,7 +22,8 @@ export function parseInstance(raw: string | null | undefined): InstanceInfo | nu
     const https = (s: unknown) => { const u = str(s); return u && /^https?:\/\//i.test(u) ? u : null; };
     const sup = v.support && (v.support.kind === 'email' || v.support.kind === 'url') && str(v.support.value) ? v.support : null;
     const info: InstanceInfo = {
-      name: str(v.name),
+      // Galley: an operator named like the product is no operator to show (product.ts).
+      name: isProductName(str(v.name)) ? null : str(v.name),
       logo: str(v.logo) && /^[0-9a-f]{1,32}$/.test(v.logo!) ? v.logo! : null,
       logoDark: str(v.logo) && str(v.logoDark) && /^[0-9a-f]{1,32}$/.test(v.logoDark!) ? v.logoDark! : null,
       url: https(v.url),

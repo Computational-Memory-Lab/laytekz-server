@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState, type DragEvent, type JSX, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type DragEvent, type JSX, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { ApiError, TreeEntry, api } from '../api';
 import { fileIcon, IconChevronRight, IconEllipsis, IconFilePlus, IconFilter, IconFolderPlus, IconFolderUpload, IconSpark, IconUpload } from './Icons';
 import { useDialogs } from './Dialogs';
@@ -689,7 +689,7 @@ export default function FileTree({ files, active, rootFile, projectId, branch, o
   };
 
   const nameInput = (depth: number) => adding && (
-    <div className="tree__new" style={depth ? { paddingLeft: depth * 18 } : undefined}>
+    <div className="tree__new" style={depth ? { paddingLeft: depth * 16 } : undefined}>
       <input
         key={`${adding.kind}:${adding.dir}`}
         autoFocus className="input" spellCheck={false} autoComplete="off"
@@ -711,7 +711,8 @@ export default function FileTree({ files, active, rootFile, projectId, branch, o
   const renderNode = (node: TreeNode, depth: number, pos: number, size: number): JSX.Element => {
     // one level is the chevron plus the gap, so a child's chevron sits under
     // its folder's icon
-    const pad = 8 + depth * 18;
+    // Galley: 16px a level (a 12px chevron plus the 4px gap) for the condensed tree
+    const pad = 6 + depth * 16;
     if (node.type === 'dir') {
       const open = isOpen(node.path);
       const inputHere = !!adding && open && inputDir === node.path;
@@ -732,12 +733,12 @@ export default function FileTree({ files, active, rootFile, projectId, branch, o
             {!readOnly && rowMenu(node)}
           </div>
           {open && (
-            <div role="group">
+            <div role="group" className="tree__group" style={{ '--tree-guide': `${pad + 6}px` } as CSSProperties}>
               {inputHere && nameInput(depth + 1)}
               {node.children.length
                 ? node.children.map((c, i) => renderNode(c, depth + 1, i + 1, node.children.length))
                 : !inputHere && (
-                  <div className="tree__empty" style={{ paddingLeft: pad + 36 }} data-testid={`dir-empty-${node.path}`} {...dropTarget(node.path)}>
+                  <div className="tree__empty" style={{ paddingLeft: pad + 32 }} data-testid={`dir-empty-${node.path}`} {...dropTarget(node.path)}>
                     {holdsOnlyKeep(files, node.path) ? 'Empty folder' : 'No source files'}
                   </div>
                 )}

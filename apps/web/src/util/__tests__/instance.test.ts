@@ -14,9 +14,18 @@ describe('instance operator', () => {
     expect(hostile).toEqual({ name: 'X', logo: null, logoDark: null, url: null, support: null });
   });
 
-  it('adds the operator after Aldine in the tab title, never instead', () => {
-    expect(documentTitle('Projects', null)).toBe('Projects – Aldine');
-    expect(documentTitle('Projects', 'Kiel University')).toBe('Projects – Aldine · Kiel University');
-    expect(documentTitle(null, 'Kiel University')).toBe('Aldine · Kiel University');
+  it('adds the operator after the product name in the tab title, never instead', () => {
+    expect(documentTitle('Projects', null)).toBe('Projects – Laytekz');
+    expect(documentTitle('Projects', 'Kiel University')).toBe('Projects – Laytekz · Kiel University');
+    expect(documentTitle(null, 'Kiel University')).toBe('Laytekz · Kiel University');
+    expect(documentTitle(null, null)).toBe('Laytekz');
+  });
+
+  it('treats an operator named like the product as no operator', () => {
+    expect(documentTitle('Projects', 'Laytekz')).toBe('Projects – Laytekz');
+    expect(documentTitle('Projects', ' laytekz ')).toBe('Projects – Laytekz');
+    expect(parseInstance(JSON.stringify({ name: 'Laytekz' }))).toBeNull();
+    expect(parseInstance(JSON.stringify({ name: 'Laytekz', support: { kind: 'email', value: 'help@example.org' } })))
+      .toEqual({ name: null, logo: null, logoDark: null, url: null, support: { kind: 'email', value: 'help@example.org' } });
   });
 });

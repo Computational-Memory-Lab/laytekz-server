@@ -27,7 +27,7 @@ test.describe('Connect Claude', () => {
       // is the only route and there is nothing to switch between
       await expect(page.getByTestId('connect-client-cloud')).toHaveCount(0);
       await expect(page.getByTestId('agent-claude-code-command')).toHaveText(
-        `claude mcp add --transport http aldine ${baseURL}/mcp --header "X-Aldine-Token: <ALDINE_MCP_TOKEN>"`,
+        `claude mcp add --transport http laytekz ${baseURL}/mcp --header "X-Aldine-Token: <ALDINE_MCP_TOKEN>"`,
       );
       await expect(page.getByTestId('agent-connector-unreachable')).toBeVisible();
       await expect(page.getByTestId('agent-connector-unreachable')).toContainText('ChatGPT');
@@ -83,7 +83,7 @@ test.describe('Connect Claude', () => {
 
       await page.getByTestId('connect-client-code').click();
       await expect(page.getByTestId('agent-claude-code-command')).toHaveText(
-        'claude mcp add --transport http aldine https://papers.example.org/mcp --header "X-Aldine-Token: <ALDINE_MCP_TOKEN>"',
+        'claude mcp add --transport http laytekz https://papers.example.org/mcp --header "X-Aldine-Token: <ALDINE_MCP_TOKEN>"',
       );
 
       // ChatGPT signs in with OAuth only and cannot send the token header:

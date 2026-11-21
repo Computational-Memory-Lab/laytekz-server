@@ -301,7 +301,7 @@ test.describe('app shell', () => {
       await page.route(blocked, (route) => route.abort());
       await page.goto('/');
       await expect(page.getByTestId('new-project')).toBeVisible();
-      await expect(page).toHaveTitle('Projects – Aldine');
+      await expect(page).toHaveTitle('Projects – Laytekz');
 
       await page.goto(`/p/${id}`);
       const error = page.getByTestId('app-error');
@@ -310,7 +310,7 @@ test.describe('app shell', () => {
       await page.unroute(blocked);
       await page.getByTestId('app-error-reload').click();
       await expect(page.getByTestId('editor-shell')).toBeVisible();
-      await expect(page).toHaveTitle('Shell Paper – Aldine');
+      await expect(page).toHaveTitle('Shell Paper – Laytekz');
       await expect(page.getByRole('main', { name: 'Editor' })).toBeVisible();
       await expect(page.getByRole('banner', { name: 'Project toolbar' })).toBeVisible();
     } finally { await cleanup(request, id); }

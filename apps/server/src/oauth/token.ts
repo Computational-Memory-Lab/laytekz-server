@@ -5,6 +5,7 @@ import * as auth from '../auth.js';
 import { OAuthError } from './errors.js';
 import { consumeCode } from './codes.js';
 import { isOurResource, SCOPE } from './metadata.js';
+import { VERIFIER_RE, pkceMatches } from './pkce.js';
 
 /**
  * Token endpoint logic (authorization_code + refresh_token grants) and
@@ -60,15 +61,6 @@ async function revokeFamily(family: string): Promise<void> {
   const now = new Date().toISOString();
   await db().revokeRefreshFamily(family, now);
   await db().revokeTokensInFamily(family, now);
-}
-
-const VERIFIER_RE = /^[A-Za-z0-9\-._~]{43,128}$/;
-
-function pkceMatches(verifier: string, challenge: string): boolean {
-  const a = crypto.createHash('sha256').update(verifier).digest();
-  let b: Buffer;
-  try { b = Buffer.from(challenge, 'base64url'); } catch { return false; }
-  return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
 /** RFC 8707: an absent `resource` is fine; a present one must name this server. */

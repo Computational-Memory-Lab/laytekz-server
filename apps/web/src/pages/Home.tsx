@@ -36,15 +36,16 @@ import { gridMove, isGridKey } from '../util/rovingGrid';
 import { useMediaQuery, prefersReducedMotion } from '../util/useMediaQuery';
 import { useFlip } from '../util/useFlip';
 import { isMac } from '../platform';
+import { SOURCE_URL } from '../source';
+// Galley: the product's name and credit (product.ts, ProductCredit.tsx).
+import { PRODUCT_NAME } from '../product';
+import { BasedOnAldine, PrivacyLink } from '../components/ProductCredit';
 import {
   HOME_RETURN_KEY, homeHref, isSharedWithMe, trashLosses, matchSentence, matchesQuery, parseShow, parseSort, pdfBranch, pdfOutputPath, projectHref, sectionsOf, SORT_KEY, SORTS,
   sortProjects, type ShelfSection, type Show, type SortKey,
 } from '../util/homeList';
 
 declare const __ALDINE_VERSION__: string;
-
-/** AGPL section 13: the source of the version running here (About.tsx says the same). */
-const SOURCE_URL = 'https://github.com/trahloff/Aldine';
 
 /** Mirrors IMPORT_MAX_ZIP_BYTES in apps/server/src/routes.ts — the server
  *  enforces it; this pre-flight only spares the upload. */
@@ -864,7 +865,7 @@ export default function Home() {
     { id: 'trash', group: 'More', title: trash?.length ? `Show the trash (${trash.length})` : 'Show the trash', run: () => navigate('/?show=trash') },
     ...(authEnabled && user ? [{ id: 'account', group: 'More', title: 'Account settings…', run: () => setShowAccount(true) }] : []),
     ...(admin && authEnabled ? [{ id: 'admin', group: 'More', title: 'Server admin: accounts and usage', run: () => navigate('/admin') }] : []),
-    { id: 'about', group: 'More', title: 'About Aldine and its source code', run: () => setAboutOpen(true) },
+    { id: 'about', group: 'More', title: `About ${PRODUCT_NAME} and its source code`, run: () => setAboutOpen(true) },
     { id: 'connect-claude', group: 'More', title: 'Connect Claude or ChatGPT (MCP connector)…', run: () => setConnectOpen(true) },
   ], [remotes, authEnabled, user, admin, trash, archived, projects, navigate, appearance]);
 
@@ -1112,7 +1113,7 @@ export default function Home() {
 
       {/* AGPL section 13: a network instance must offer its users the source. */}
       <footer className="shelf-page__colophon" data-testid="colophon">
-        Aldine {__ALDINE_VERSION__} · AGPL-3.0 · <a href={SOURCE_URL} target="_blank" rel="noreferrer" data-testid="colophon-source">Source code</a>
+        {PRODUCT_NAME} · <BasedOnAldine version={__ALDINE_VERSION__} /> · AGPL-3.0 · <a href={SOURCE_URL} target="_blank" rel="noreferrer" data-testid="colophon-source">Source code</a> · <PrivacyLink testId="colophon-privacy" />
       </footer>
 
       {drag !== null && (

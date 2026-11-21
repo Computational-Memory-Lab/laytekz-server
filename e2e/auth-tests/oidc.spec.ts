@@ -133,7 +133,7 @@ test.describe('OIDC sign-in', () => {
 
   test('someone outside OIDC_ALLOWED_GROUPS is turned away', async ({ page }) => {
     await signIn(page, await persona({ groups: ['other-team'] }));
-    await expect(page.getByTestId('sign-in-error')).toContainText('not in a group that may use this Aldine instance');
+    await expect(page.getByTestId('sign-in-error')).toContainText('not in a group that may use this Laytekz instance');
     await page.getByTestId('sign-in-error-back').click();
     await expect(page.getByTestId('auth-email')).toBeVisible();
     await expect(page.getByTestId('new-project')).toHaveCount(0);

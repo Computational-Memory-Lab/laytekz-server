@@ -197,7 +197,7 @@ mock.addPersona({ code: 'second', sub: 'second-1', claims: { name: 'Second', ema
   const first = await sso('sam', 'text/html');
   eq(first.statusCode, 403, `the first sign-in creates a waiting account (${first.body.slice(0, 200)})`);
   check(!cookieOf(first), 'no session');
-  check(first.body.includes('<h1>Waiting for approval</h1>') && first.body.includes('<title>Waiting for approval · Aldine</title>'), 'the page is titled for it');
+  check(first.body.includes('<h1>Waiting for approval</h1>') && first.body.includes('<title>Waiting for approval · Laytekz</title>'), 'the page is titled for it');
   check(first.body.includes(`data-testid="sign-in-error">Your account is created. ${auth.AWAITING_APPROVAL}`), 'and says what happens next');
   const sam = await db().findUserByEmail('sam@example.org');
   check(sam && auth.awaitingApproval(sam) && !sam.emailPending, 'a waiting account with the provider\'s address');
@@ -248,15 +248,15 @@ mock.addPersona({ code: 'second', sub: 'second-1', claims: { name: 'Second', ema
   eq(approved.statusCode, 200, 'Enable approves');
   eq([approved.json().awaitingApproval, approved.json().disabledAt], [false, undefined], 'the row is an ordinary account now');
   check(logs.some((l) => l.startsWith('[aldine] admin root@example.org') && l.includes(`approved newbie@example.org [${newbie.id}]`)), 'the log says approved');
-  const m = await mailTo('newbie@example.org', 'Your Aldine account is approved');
-  check(m.text.includes('An administrator approved your account on the Aldine server at https://aldine.test') && m.text.includes('https://aldine.test/'), 'the person is told, with a link to sign in');
+  const m = await mailTo('newbie@example.org', 'Your Laytekz account is approved');
+  check(m.text.includes('An administrator approved your account on the Laytekz server at https://aldine.test') && m.text.includes('https://aldine.test/'), 'the person is told, with a link to sign in');
   const r = await login('newbie@example.org');
   eq(r.statusCode, 200, 'the approved account signs in');
   check(cookieOf(r), 'with a session');
 
   const samRow = row('sam@example.org');
   eq((await call('POST', `/api/admin/users/${samRow.id}/enable`, root, {})).statusCode, 200, 'approve the single sign-on account');
-  await mailTo('sam@example.org', 'Your Aldine account is approved');
+  await mailTo('sam@example.org', 'Your Laytekz account is approved');
   eq((await sso('sam')).statusCode, 302, 'and it signs in through the provider');
 
   // Disable and enable an ordinary account: as before the mode.

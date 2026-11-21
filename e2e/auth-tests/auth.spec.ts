@@ -80,7 +80,7 @@ test.describe('auth', () => {
     await page.goto('/');
     await page.getByTestId('account-menu').click();
     await page.getByTestId('logout').click();
-    await expect(page).toHaveTitle('Sign in – Aldine');
+    await expect(page).toHaveTitle('Sign in – Laytekz');
     await expect(page.getByRole('main')).toBeVisible();
     const emailField = page.getByLabel('Email');
     const password = page.getByLabel('Password');

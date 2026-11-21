@@ -43,7 +43,7 @@ test.describe('editor toolbar', () => {
       await request.put(`/api/projects/${id}/file`, { data: { branch: 'main', path: 'main.tex', content: 'PLACEHOLDER needs a word.\n' } });
       await openProject(page, id);
       await expect(page.locator('.cm-content')).toContainText('PLACEHOLDER', { timeout: 10_000 });
-      await expect(page.getByTestId('add-comment')).toContainText(/⇧⌘M|Ctrl\+Shift\+M/);
+      await expect(page.getByTestId('add-comment')).toContainText(/⇧⌘C|Ctrl\+Shift\+C/);
 
       const line = await page.locator('.cm-line').first().boundingBox();
       await page.mouse.dblclick(line!.x + 30, line!.y + line!.height / 2);

@@ -46,6 +46,12 @@ import { invitationMail, newInvitationId, inviteExpiry, stateOf, recipientKeys, 
 import { searchProject, replaceInProject, SearchError, type ReplaceBody } from './search.js';
 import { safeJoin, isTextFile, rawFileType, RAW_FILE_CSP, importPath, wrapperFolder, isHiddenPath, optionLikePath, cleanCommitMessage, overlongPath, pathConflict, seedError, newId, rootSiblingPath, BRANCH_RE, PROJECT_ID_RE, invalidRootFile, invalidBranchName, publicBase } from './util.js';
 import { registerOAuth } from './oauth/routes.js';
+import { handoffCookie, handoffCookieName, cookieCount, attemptTag, attemptMatches, confirmationTag, confirmationMatches, textPlainFields, issueHandoffCode, consumeHandoffCode, loopbackRedirect, openHandoff, parseHandoffStart, sealHandoff, sessionBinding, signedInDuringHandoff, HANDOFF_TTL_S, type Handoff } from './desktop-handoff.js';
+import { oauthTokenLimiter } from './ratelimit.js';
+// Galley: the product's own name (product.ts) and the privacy page (privacy.ts).
+import { PRODUCT_KIND, PRODUCT_NAME, productTitle } from './product.js';
+import { privacyPage } from './privacy.js';
+import { currentInstance } from './instance.js';
 import { verifyOutputSignature, isOutputPath } from './output-signing.js';
 import { projectThumb, readThumbImage, etagMatches } from './thumbnail.js';
 import { readTemplatePreview, withPreviews } from './templatepreviews.js';
@@ -386,16 +392,16 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       // unconfirmed, so a name would put the signer's own text and links in
       // a mail this instance sends to anyone.
       const intro = signUp
-        ? `Welcome to Aldine — write LaTeX together, fast, versioned, and yours. Someone, probably you, just created an account at ${config.publicUrl} with this address.`
-        : `Here is a new link to confirm the address of your Aldine account at ${config.publicUrl}.`;
+        ? `Welcome to ${PRODUCT_NAME}, ${PRODUCT_KIND}. Someone, probably you, just created an account at ${config.publicUrl} with this address.`
+        : `Here is a new link to confirm the address of your ${PRODUCT_NAME} account at ${config.publicUrl}.`;
       const why = waiting
-        ? 'Confirm the address, then an administrator of this server approves the account. Aldine asks you to sign in to confirm it, and emails you once the account is approved.'
+        ? `Confirm the address, then an administrator of this server approves the account. ${PRODUCT_NAME} asks you to sign in to confirm it, and emails you once the account is approved.`
         : returnTo
-          ? 'Confirm the address to accept the invitation you signed up from: the link brings you back to it. If you are not signed in, Aldine asks you to sign in first.'
-          : 'Confirm the address to see the projects people share with you by email. If you are not signed in, Aldine asks you to sign in first.';
+          ? `Confirm the address to accept the invitation you signed up from: the link brings you back to it. If you are not signed in, ${PRODUCT_NAME} asks you to sign in first.`
+          : `Confirm the address to see the projects people share with you by email. If you are not signed in, ${PRODUCT_NAME} asks you to sign in first.`;
       email.sendMail({
         to,
-        subject: 'Confirm your email address for Aldine',
+        subject: `Confirm your email address for ${PRODUCT_NAME}`,
         text: `Hi there,\n\n${intro}\n\n${why}\n\nConfirm your email address (the link expires in ${auth.CONFIRM_TTL_DAYS} days):\n${link}\n\nIf you did not create this account, ignore this email: the address stays unconfirmed.`,
         html: `<p>Hi there,</p><p>${intro}</p><p>${why}</p><p><a href="${link}">Confirm your email address</a> (the link expires in ${auth.CONFIRM_TTL_DAYS} days).</p><p>If you did not create this account, ignore this email: the address stays unconfirmed.</p>`,
       }).catch((err) => console.error('[aldine] confirmation email failed:', err?.message || err));
@@ -592,30 +598,54 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   // leave the browser except to us, and expire with the cookie.
   const STATE_COOKIE = 'aldine_oauth_state';
   const clearState = `${STATE_COOKIE}=; HttpOnly; SameSite=Lax; Path=${auth.COOKIE_PATH}; Max-Age=0${auth.SECURE_COOKIES ? '; Secure' : ''}`;
+  const handoffCookieOpts = { path: auth.COOKIE_PATH, secure: auth.SECURE_COOKIES };
+  const HANDOFF = handoffCookieName(handoffCookieOpts);
+  const clearHandoff = handoffCookie(null, handoffCookieOpts);
+  const setHandoff = (h: Handoff) => handoffCookie(sealHandoff(h), { ...handoffCookieOpts, maxAge: (h.exp - Date.now()) / 1000 });
+  // Galley: a handoff cookie repeated in the Cookie header (one planted for the
+  // parent domain by a sibling site) counts as none (desktop-handoff.ts).
+  const handoffOf = (req: FastifyRequest) => (cookieCount(req.headers.cookie, HANDOFF) === 1 ? openHandoff(auth.parseCookies(req.headers.cookie)[HANDOFF]) : null);
+  const holdsHandoff = (req: FastifyRequest) => cookieCount(req.headers.cookie, HANDOFF) > 0;
   const callbackUrl = (req: FastifyRequest, id: string) => `${publicBase(req)}/api/auth/oauth/${id}/callback`;
   // "Google sign-in failed", but "Single sign-on failed" rather than "Single sign-on sign-in failed".
   const signInName = (label: string) => (/sign[- ]?(on|in)|log[- ]?in/i.test(label) ? label : `${label} sign-in`);
   const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+  // Galley: the pages name the product by its own name (product.ts); tab
+  // titles add the operator (ALDINE_INSTANCE_NAME) after it, as the web app's do.
+  const productName = PRODUCT_NAME;
+  const titleSuffix = productTitle(instance.info.name);
+  // Script-free page shell for the sign-in pages the server renders itself.
+  // `main` is HTML the caller has already escaped.
+  // Galley: `wide` for a page of reading (the privacy page).
+  const authPage = (reply: FastifyReply, code: number, title: string, main: string, formAction = "'none'", wide = false) => reply.code(code)
+    .type('text/html; charset=utf-8')
+    .header('cache-control', 'no-store')
+    .header('x-frame-options', 'DENY')
+    .header('content-security-policy', `default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action ${formAction}; frame-ancestors 'none'`)
+    .send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(title)} · ${escapeHtml(titleSuffix)}</title><style>
+:root{color-scheme:light dark;--bg:#f7f6f3;--fg:#1d1c1a;--muted:#6b6862;--card:#fff;--line:#e3e0da;--accent:#2f5d8a;--on-accent:#fff}
+@media (prefers-color-scheme:dark){:root{--bg:#161614;--fg:#ecebe8;--muted:#a3a09a;--card:#1f1f1c;--line:#34332f;--accent:#8fb5dc;--on-accent:#161614}}
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;padding:0 16px}
+main{max-width:30rem;width:100%;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:24px 28px}
+h1{font-size:1.1rem;margin:0 0 .5rem}p{margin:0 0 1.25rem;color:var(--muted);overflow-wrap:anywhere}a{color:var(--accent);font-weight:600}
+strong{color:var(--fg)}ul{margin:0 0 1.25rem;padding:0;list-style:none}li{margin:0 0 .5rem}
+form{display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px;margin:0}
+button{font:inherit;font-weight:600;color:var(--on-accent);background:var(--accent);border:0;border-radius:8px;padding:8px 16px;cursor:pointer;overflow-wrap:anywhere}button.quiet{color:var(--accent);background:none;padding:8px 4px}
+main.wide{max-width:40rem;margin:32px 0}main.wide h2{font-size:1rem;margin:1.5rem 0 .4rem}main.wide ul{list-style:disc;padding-left:1.25rem;color:var(--muted)}main.wide li{margin:0 0 .4rem}main.wide a{font-weight:500}
+</style></head><body><main${wide ? ' class="wide"' : ''}>${main}</main></body></html>`);
   // These routes are browser navigations: a person who lands here from the
   // IdP gets a page with a way back, API clients keep the JSON body. No free
   // text from the request URL reaches the page (only an RFC 6749 error code).
   const signInFailed = (req: FastifyRequest, reply: FastifyReply, code: number, error: string, title = 'Sign-in failed', backTo = { href: '/', label: 'Back to sign-in' }) => {
     if (!/\btext\/html\b/.test(String(req.headers.accept || ''))) return reply.code(code).send({ error });
     const back = `${config.basePath}${backTo.href}`;
-    return reply.code(code)
-      .type('text/html; charset=utf-8')
-      .header('cache-control', 'no-store')
-      .header('content-security-policy', "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
-      .send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(title)} · Aldine</title><style>
-:root{color-scheme:light dark;--bg:#f7f6f3;--fg:#1d1c1a;--muted:#6b6862;--card:#fff;--line:#e3e0da;--accent:#2f5d8a}
-@media (prefers-color-scheme:dark){:root{--bg:#161614;--fg:#ecebe8;--muted:#a3a09a;--card:#1f1f1c;--line:#34332f;--accent:#8fb5dc}}
-body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;padding:0 16px}
-main{max-width:30rem;width:100%;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:24px 28px}
-h1{font-size:1.1rem;margin:0 0 .5rem}p{margin:0 0 1.25rem;color:var(--muted);overflow-wrap:anywhere}a{color:var(--accent);font-weight:600}
-</style></head><body><main><h1>${escapeHtml(title)}</h1><p data-testid="sign-in-error">${escapeHtml(error)}</p><a data-testid="sign-in-error-back" href="${escapeHtml(back)}">${escapeHtml(backTo.label)}</a></main></body></html>`);
+    return authPage(reply, code, title, `<h1>${escapeHtml(title)}</h1><p data-testid="sign-in-error">${escapeHtml(error)}</p><a data-testid="sign-in-error-back" href="${escapeHtml(back)}">${escapeHtml(backTo.label)}</a>`);
   };
+  // Galley: what this deployment stores and who else is involved (privacy.ts),
+  // for anyone, signed in or not.
+  app.get('/privacy', async (_req, reply) => authPage(reply, 200, 'Privacy', privacyPage(currentInstance().support, `${config.basePath}/`), "'none'", true));
 
-  app.get<{ Params: { provider: string } }>('/api/auth/oauth/:provider', async (req, reply) => {
+  app.get<{ Params: { provider: string }; Querystring: { desktop?: string } }>('/api/auth/oauth/:provider', async (req, reply) => {
     const provider = auth.AUTH_ENABLED ? oauth.getProvider(req.params.provider) : undefined;
     if (!provider) return signInFailed(req, reply, 404, 'This sign-in provider is not configured');
     const state = crypto.randomBytes(12).toString('hex');
@@ -627,7 +657,14 @@ h1{font-size:1.1rem;margin:0 0 .5rem}p{margin:0 0 1.25rem;color:var(--muted);ove
       req.log.warn({ provider: provider.id, err: err?.message }, 'sign-in provider unavailable');
       return signInFailed(req, reply, 502, `${signInName(provider.label)} is unavailable: ${err.message}`);
     }
-    reply.header('set-cookie', `${STATE_COOKIE}=${provider.id}.${state}.${secret}; HttpOnly; SameSite=Lax; Path=${auth.COOKIE_PATH}; Max-Age=600${auth.SECURE_COOKIES ? '; Secure' : ''}`);
+    // Galley: the desktop handoff's own link (desktop=1) ties this attempt to the
+    // handoff it started for (attemptTag); the callback checks the tie.
+    const handoff = req.query.desktop === '1' ? handoffOf(req) : null;
+    const tie = handoff ? `.desktop.${attemptTag(state, handoff)}` : '';
+    reply.header('set-cookie', `${STATE_COOKIE}=${provider.id}.${state}.${secret}${tie}; HttpOnly; SameSite=Lax; Path=${auth.COOKIE_PATH}; Max-Age=600${auth.SECURE_COOKIES ? '; Secure' : ''}`);
+    // Galley: a sign-in begun anywhere else drops a handoff the browser abandoned,
+    // so it lands on the app and never on that handoff's loopback address.
+    if (req.query.desktop !== '1' && holdsHandoff(req)) reply.header('set-cookie', clearHandoff);
     return reply.redirect(url);
   });
 
@@ -639,10 +676,14 @@ h1{font-size:1.1rem;margin:0 0 .5rem}p{margin:0 0 1.25rem;color:var(--muted);ove
       // sign-in cannot carry another provider's code through this callback.
       // A connect (see /api/auth/sign-in-methods) adds `link` and the
       // binding to the session that started it.
-      const [cookieProvider, cookieState, secret, purpose, binding, extra] = (auth.parseCookies(req.headers.cookie)[STATE_COOKIE] || '').split('.');
+      // Galley: a desktop handoff's sign-in adds `desktop` and its tie to the
+      // handoff. A state cookie repeated in the header (one planted for the
+      // parent domain by a sibling site) counts as none.
+      const stateCookie = cookieCount(req.headers.cookie, STATE_COOKIE) === 1 ? auth.parseCookies(req.headers.cookie)[STATE_COOKIE] : '';
+      const [cookieProvider, cookieState, secret, purpose, binding, extra] = (stateCookie || '').split('.');
       const q = req.query;
       if (typeof q.state !== 'string' || !q.state || !cookieState || !secret || q.state !== cookieState || cookieProvider !== provider.id
-        || extra !== undefined || (purpose !== undefined && purpose !== 'link')) {
+        || extra !== undefined || (purpose !== undefined && purpose !== 'link' && purpose !== 'desktop')) {
         return signInFailed(req, reply, 400, 'OAuth state mismatch — please try again');
       }
       const linking = purpose === 'link';
@@ -682,13 +723,149 @@ h1{font-size:1.1rem;margin:0 0 .5rem}p{margin:0 0 1.25rem;color:var(--muted);ove
         const profile = await provider.exchange(q.code, callbackUrl(req, provider.id), oauth.attemptFrom(secret), callback);
         const user = await auth.findOrCreateOAuth(profile, provider.id);
         syncAvatar(user.id, provider.id, profile.picture, { allowLoopbackHttp: provider.id === 'oidc' && issuerIsLoopback() }).catch(() => {});
-        reply.header('set-cookie', auth.sessionCookie(await auth.createSession(user.id, Date.now(), profile.idToken)));
+        const newSid = await auth.createSession(user.id, Date.now(), profile.idToken);
+        reply.header('set-cookie', auth.sessionCookie(newSid));
+        // Galley: the sign-in this desktop handoff started. Record that it signed
+        // the browser in (the new session, by MAC), so /continue needs no confirmation.
+        const handoff = handoffOf(req);
+        if (handoff && purpose === 'desktop' && attemptMatches(binding, cookieState, handoff)) {
+          reply.header('set-cookie', setHandoff({ ...handoff, session: sessionBinding(newSid) }));
+          return reply.redirect(`${config.basePath}/api/auth/desktop/continue`);
+        }
+        // Galley: any other sign-in (on the site, for an earlier handoff, or with
+        // a planted cookie) is never handed to the handoff the browser holds.
+        if (holdsHandoff(req)) reply.header('set-cookie', clearHandoff);
         return reply.redirect(`${config.basePath}/`);
       } catch (err: any) {
-        if (err instanceof auth.AwaitingApprovalError) return signInFailed(req, reply, 403, err.message, 'Waiting for approval');
+        if (err instanceof auth.AwaitingApprovalError) {
+          // Galley: a handoff ends here too; the desktop app times out and says why.
+          if (holdsHandoff(req)) reply.header('set-cookie', clearHandoff);
+          return signInFailed(req, reply, 403, err.message, 'Waiting for approval');
+        }
         return signInFailed(req, reply, 400, `${signInName(provider.label)} failed: ${err.message}`);
       }
     });
+
+  // ---------- Galley: desktop sign-in handoff (desktop-handoff.ts) ----------
+  // The desktop app opens /start in the system browser and listens on the
+  // loopback redirect URI it names; the session reaches the app's own browser
+  // session only through /exchange. Bearer tokens never get here: none of
+  // these is a neutral route for the /api guard below, and /exchange refuses
+  // an Authorization header itself. The browser is only ever redirected to a
+  // redirect URI that validLoopbackRedirect accepted, checked again whenever
+  // it is read back from the cookie.
+  const DESKTOP_FAILED = 'Desktop sign-in failed';
+  const noDesktop = (req: FastifyRequest, reply: FastifyReply) => signInFailed(req, reply, 404, 'Desktop sign-in needs accounts, and this server has none', DESKTOP_FAILED);
+  const handoffGone = (req: FastifyRequest, reply: FastifyReply) => {
+    reply.header('set-cookie', clearHandoff);
+    return signInFailed(req, reply, 400, 'This desktop sign-in has expired or was already used. Start again from the desktop app.', DESKTOP_FAILED);
+  };
+  /** Issue the one-time code and send the browser to the app's listener with it. */
+  const handBack = (reply: FastifyReply, h: Handoff, userId: string, status: 302 | 303) => {
+    const code = issueHandoffCode({ userId, challenge: h.challenge, redirectUri: h.redirectUri });
+    reply.header('set-cookie', clearHandoff);
+    return reply.redirect(loopbackRedirect(h.redirectUri, { code, state: h.state }), status);
+  };
+  const providerLink = (p: { id: string; label: string }) => `<li><a data-testid="desktop-handoff-provider-${escapeHtml(p.id)}" href="${escapeHtml(`${config.basePath}/api/auth/oauth/${p.id}?desktop=1`)}">${escapeHtml(p.label === 'Single sign-on' ? 'Continue with single sign-on' : `Continue with ${p.label}`)}</a></li>`;
+
+  app.get<{ Querystring: Record<string, unknown> }>('/api/auth/desktop/start', async (req, reply) => {
+    if (!auth.AUTH_ENABLED) return noDesktop(req, reply);
+    const parsed = parseHandoffStart(req.query || {});
+    if (!parsed.ok) return signInFailed(req, reply, 400, parsed.error, DESKTOP_FAILED);
+    const { challenge, redirectUri, state, provider: wanted } = parsed.start;
+    const provider = wanted ? oauth.getProvider(wanted) : undefined;
+    if (wanted && !provider) return signInFailed(req, reply, 400, 'This sign-in provider is not configured', DESKTOP_FAILED);
+    reply.header('set-cookie', setHandoff({ challenge, redirectUri, state, exp: Date.now() + HANDOFF_TTL_S * 1000 }));
+    if (reqUser(req)) return reply.redirect(`${config.basePath}/api/auth/desktop/continue`);
+    const providers = oauth.configuredProviders();
+    const only = provider ?? (auth.SSO_ONLY && providers.length === 1 ? providers[0] : undefined);
+    if (only) return reply.redirect(`${config.basePath}/api/auth/oauth/${only.id}?desktop=1`);
+    if (auth.SSO_ONLY && !providers.length) return signInFailed(req, reply, 503, 'No sign-in method is configured on this server', DESKTOP_FAILED);
+    // A password sign-in happens in the web app, which never returns here; once
+    // this browser is signed in, the next start goes straight to confirmation.
+    const password = auth.SSO_ONLY ? '' : `<p data-testid="desktop-handoff-password">Signing in with a password? <a href="${escapeHtml(`${config.basePath}/`)}">Sign in on this site</a> first, then start again from the desktop app.</p>`;
+    return authPage(reply, 200, 'Sign in to the desktop app',
+      `<h1>Sign in to the ${escapeHtml(productName)} desktop app</h1><p>Choose how to sign in. This browser then passes the sign-in on to the desktop app.</p>${providers.length ? `<ul>${providers.map(providerLink).join('')}</ul>` : ''}${password}`);
+  });
+
+  app.get('/api/auth/desktop/continue', async (req, reply) => {
+    if (!auth.AUTH_ENABLED) return noDesktop(req, reply);
+    const h = handoffOf(req);
+    if (!h) return handoffGone(req, reply);
+    const user = reqUser(req);
+    if (!user) {
+      reply.header('set-cookie', clearHandoff);
+      return signInFailed(req, reply, 401, 'This browser is not signed in. Start again from the desktop app.', DESKTOP_FAILED);
+    }
+    // Signed in by this very flow: the person just went through the provider's page.
+    if (signedInDuringHandoff(h, auth.sidFromRequest(req.headers.cookie))) return handBack(reply, h, user.id, 302);
+    // Signed in before the flow began: a local process could have opened
+    // /start, so the person confirms, seeing the account, before any code exists.
+    const confirming = { ...h, session: undefined, account: user.id };
+    reply.header('set-cookie', setHandoff(confirming));
+    const who = user.email && user.name && user.name !== user.email ? `${user.name} (${user.email})` : user.email || user.name || 'your account';
+    // form-action applies to the redirect after the POST too. CSP host sources
+    // cannot name an IPv6 literal, so [::1] gets the http scheme instead.
+    const loopback = new URL(h.redirectUri);
+    const formAction = loopback.hostname === '127.0.0.1' ? `'self' ${loopback.origin}` : "'self' http:";
+    return authPage(reply, 200, 'Sign in to the desktop app?',
+      `<h1>Sign in to the desktop app?</h1>`
+      + `<p data-testid="desktop-handoff-account">The ${escapeHtml(productName)} desktop app on this computer is asking to sign in as <strong>${escapeHtml(who)}</strong>.</p>`
+      + `<p>Continue only if you started signing in from the desktop app just now. It gets the same access to your projects as this browser.</p>`
+      + `<form method="post" action="${escapeHtml(`${config.basePath}/api/auth/desktop/approve`)}" enctype="text/plain">`
+      + `<input type="hidden" name="confirm" value="${escapeHtml(confirmationTag(confirming) ?? '')}">`
+      + `<button type="submit" name="action" value="approve" data-testid="desktop-handoff-approve">Continue to the desktop app</button>`
+      + `<button type="submit" name="action" value="cancel" class="quiet" data-testid="desktop-handoff-cancel">Cancel</button></form>`,
+      formAction);
+  });
+
+  app.post('/api/auth/desktop/approve', async (req, reply) => {
+    if (!auth.AUTH_ENABLED) return noDesktop(req, reply);
+    // Only the confirmation page itself may approve: another site, even a
+    // same-site sibling the SameSite=Lax cookie trusts, cannot.
+    let fromThisSite = false;
+    try { fromThisSite = req.headers.origin === new URL(publicBase(req)).origin; } catch { /* unparsable Host: not this site */ }
+    if (!fromThisSite) return signInFailed(req, reply, 403, 'This confirmation did not come from this site. Start again from the desktop app.', DESKTOP_FAILED);
+    const h = handoffOf(req);
+    if (!h) return handoffGone(req, reply);
+    // The form names the handoff its page showed; another one started in this
+    // browser since (a second tab, a local process) ends both.
+    const form = textPlainFields(req.body);
+    if (!confirmationMatches(form.confirm, h)) {
+      reply.header('set-cookie', clearHandoff);
+      return signInFailed(req, reply, 403, 'This confirmation page is out of date: another desktop sign-in started in this browser after it opened. Start again from the desktop app.', DESKTOP_FAILED);
+    }
+    if (form.action === 'cancel') {
+      reply.header('set-cookie', clearHandoff);
+      return reply.redirect(loopbackRedirect(h.redirectUri, { error: 'access_denied', state: h.state }), 303);
+    }
+    const user = reqUser(req);
+    if (!user || h.account !== user.id) {
+      reply.header('set-cookie', clearHandoff);
+      return signInFailed(req, reply, 403, 'You signed out or switched accounts after the confirmation opened. Start again from the desktop app.', DESKTOP_FAILED);
+    }
+    return handBack(reply, h, user.id, 303);
+  });
+
+  app.post<{ Body: unknown }>('/api/auth/desktop/exchange', async (req, reply) => {
+    reply.header('cache-control', 'no-store').header('pragma', 'no-cache');
+    if (!auth.AUTH_ENABLED) return reply.code(404).send({ error: 'not found' });
+    if ((req as any)._tokenScope || /^bearer\s/i.test(String(req.headers.authorization || ''))) {
+      return reply.code(403).send({ error: 'Access tokens cannot sign in a desktop app' });
+    }
+    if (!(await oauthTokenLimiter.take(clientKey(req)))) return reply.code(429).send({ error: 'Too many requests — slow down' });
+    // A cross-site form cannot send JSON, and a cross-site fetch that does
+    // needs a CORS preflight this server never answers.
+    if (!/^application\/json\s*(;|$)/i.test(String(req.headers['content-type'] || ''))) return reply.code(415).send({ error: 'Send the request as JSON' });
+    const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
+    const userId = consumeHandoffCode(body.code, body.code_verifier, body.redirect_uri);
+    const user = userId ? await auth.getUser(userId) : null;
+    if (!user || user.disabledAt) return reply.code(400).send({ error: 'invalid_grant' });
+    // The app's previous session, if its window had one, is replaced: end it.
+    await auth.destroySession(auth.sidFromRequest(req.headers.cookie));
+    reply.header('set-cookie', auth.sessionCookie(await auth.createSession(user.id)));
+    return { user: await auth.pubFull(user) };
+  });
 
   // ---------- sign-in methods: connect single sign-on to a password account ----------
   // Session-cookie only: the /api/auth guard below refuses bearer tokens here.
@@ -3279,7 +3456,7 @@ h1{font-size:1.1rem;margin:0 0 .5rem}p{margin:0 0 1.25rem;color:var(--muted);ove
   projectRoute('post', 'push', async (req, reply) => {
     const l = await linkedRemote(req, reply); if (!l) return;
     flushBranchDocs(req.params.id, 'main'); // capture unsaved editor content before committing
-    const message = cleanCommitMessage(req.body?.message, 'Update from Aldine');
+    const message = cleanCommitMessage(req.body?.message, `Update from ${PRODUCT_NAME}`);
     const commit = await gitops.autoCommit(req.params.id, 'main', message, reqAuthor(req)).catch(() => ({ committed: false, hash: undefined as string | undefined }));
     // HEAD is the commit hash we just made (when we committed), else look it up.
     const head = commit.committed ? commit.hash ?? null : await gitops.headCommit(req.params.id).catch(() => null);
@@ -3323,7 +3500,7 @@ h1{font-size:1.1rem;margin:0 0 .5rem}p{margin:0 0 1.25rem;color:var(--muted);ove
     const l = await linkedRemote(req, reply); if (!l) return;
     flushBranchDocs(req.params.id, 'main');
     await gitops.autoCommit(req.params.id, 'main', 'Local changes before combining', reqAuthor(req)).catch(() => {});
-    const message = cleanCommitMessage(req.body?.message, 'Update from Aldine');
+    const message = cleanCommitMessage(req.body?.message, `Update from ${PRODUCT_NAME}`);
     let r: Awaited<ReturnType<typeof gitops.combineUnpushed>>;
     try { r = await gitops.combineUnpushed(req.params.id, l.remoteBranch, l.url, keepName(), message, reqAuthor(req)); }
     catch (err: any) { return gitFailed(reply, l, err, 'fetch', () => reply.code(400).send({ error: `Could not combine the commits: ${err.message}` })); }

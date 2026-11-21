@@ -1,8 +1,9 @@
 import { INSTANCE, instanceDarkLogoSrc, instanceLogoSrc, supportHref, type InstanceInfo } from '../instance';
+import { PRODUCT_NAME } from '../product';
 
 /**
- * The instance operator's mark (ALDINE_INSTANCE_*), always next to Aldine's
- * own wordmark and never in its place. Nothing renders when the operator set
+ * The instance operator's mark (ALDINE_INSTANCE_*), always next to the
+ * product's own wordmark and never in its place. Nothing renders when the operator set
  * nothing.
  */
 
@@ -25,7 +26,7 @@ export function OperatorBadge({ compact = false, info = INSTANCE }: { compact?: 
   if (!info || (!info.name && !info.logo)) return null;
   const shown = compact ? (info.logo ? { ...info, name: null } : null) : info;
   if (!shown) return null;
-  const title = info.name ? `Provided by ${info.name}` : 'Provider of this Aldine instance';
+  const title = info.name ? `Provided by ${info.name}` : `Provider of this ${PRODUCT_NAME} instance`;
   const body = <Mark i={shown} height={compact ? 18 : 20} />;
   return info.url
     ? <a className="operator operator--bar" href={info.url} target="_blank" rel="noreferrer" title={title} aria-label={title} data-testid="operator">{body}</a>

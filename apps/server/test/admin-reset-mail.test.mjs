@@ -58,7 +58,7 @@ try {
   eq(res.json(), { sent: true, to: 'bob@example.org' }, 'the answer names the address, not the link');
   const mail = decoded(await smtp.waitFor(before + 1));
   check(/^To: bob@example\.org/m.test(mail), 'the mail goes to Bob');
-  check(mail.includes('Reset your Aldine password'), 'it is the usual reset mail');
+  check(mail.includes('Reset your Laytekz password'), 'it is the usual reset mail');
   const token = /https:\/\/aldine\.test\/write\/\?reset_token=([A-Za-z0-9_-]+)/.exec(mail)?.[1];
   check(token, 'with a link on the configured public URL');
   eq((await call('POST', '/api/auth/reset', null, { token, newPassword: 'fresh-password' })).statusCode, 200, 'the mailed link resets the password');

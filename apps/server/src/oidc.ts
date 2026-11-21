@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { createRemoteJWKSet, customFetch, jwtVerify, errors as joseErrors, type JWTPayload } from 'jose';
 import type { OAuthProfile, OAuthProvider } from './oauth.js';
+import { PRODUCT_NAME } from './product.js'; // Galley: the product's own name
 
 /**
  * Generic OpenID Connect sign-in (Keycloak, Authentik, Authelia, Pocket ID,
@@ -157,7 +158,7 @@ export function describeFetchError(err: unknown, timeoutMs: number): string {
   if (e?.name === 'TimeoutError' || e?.name === 'AbortError') return `did not answer within ${Math.round(timeoutMs / 1000)} seconds — try again later`;
   const code = causeCode(e);
   if (code && TLS_CODE.test(code)) return `presented a TLS certificate that is not trusted (${code}) — if it uses a private CA, point NODE_EXTRA_CA_CERTS at that CA's certificate`;
-  if (code && DNS_CODE.test(code)) return `could not be found (${code}): its host name does not resolve from the Aldine server`;
+  if (code && DNS_CODE.test(code)) return `could not be found (${code}): its host name does not resolve from the ${PRODUCT_NAME} server`;
   if (/redirect/i.test(String(e?.cause?.message ?? ''))) return 'answered with a redirect — use the final URL';
   const detail = code ?? (typeof e?.cause?.message === 'string' ? e.cause.message.slice(0, 80) : '');
   return `could not be reached${detail ? ` (${detail})` : ''} — try again later`;
@@ -310,7 +311,7 @@ function signingAlgs(d: Discovery): string[] {
   // Core §3.1.3.7: RS256 is the default when the IdP does not say.
   const advertised = d.id_token_signing_alg_values_supported ?? ['RS256'];
   const algs = advertised.filter((a) => ASYMMETRIC_ALGS.has(a));
-  if (!algs.length) throw new Error('the identity provider signs ID tokens only with algorithms Aldine does not accept (use RS256 or ES256)');
+  if (!algs.length) throw new Error(`the identity provider signs ID tokens only with algorithms ${PRODUCT_NAME} does not accept (use RS256 or ES256)`);
   return algs;
 }
 
@@ -328,10 +329,10 @@ export async function verifyIdToken(idToken: string, d: Discovery, clientId: str
       requiredClaims: ['iss', 'sub', 'aud', 'exp', 'iat'],
     }));
   } catch (err) {
-    if (err instanceof joseErrors.JWTExpired) throw new Error(`the ID token has expired (${err.claim} claim) — check that the clocks of Aldine and the identity provider agree`);
+    if (err instanceof joseErrors.JWTExpired) throw new Error(`the ID token has expired (${err.claim} claim) — check that the clocks of ${PRODUCT_NAME} and the identity provider agree`);
     if (err instanceof joseErrors.JWTClaimValidationFailed) {
       if (err.reason === 'missing') throw new Error(`the ID token has no ${err.claim} claim`);
-      if (err.claim === 'iat' || err.claim === 'nbf') throw new Error(`the ID token is dated in the future (${err.claim} claim) — check that the clocks of Aldine and the identity provider agree`);
+      if (err.claim === 'iat' || err.claim === 'nbf') throw new Error(`the ID token is dated in the future (${err.claim} claim) — check that the clocks of ${PRODUCT_NAME} and the identity provider agree`);
       throw new Error(`the ID token was rejected (${err.claim} claim)`);
     }
     // jose reports an unreachable, slow or non-200 JWKS endpoint as these, and a network failure as a plain TypeError.
@@ -414,7 +415,7 @@ export function checkGroups(idClaims: Claims, info: Claims | null, c: OidcConfig
   if (!c.allowedGroups.length) return;
   const groups = groupsOf(idClaims[c.groupsClaim]) ?? groupsOf(info?.[c.groupsClaim]) ?? [];
   if (!groups.some((g) => c.allowedGroups.includes(g))) {
-    throw new Error('your account is not in a group that may use this Aldine instance — ask the administrator for access');
+    throw new Error(`your account is not in a group that may use this ${PRODUCT_NAME} instance — ask the administrator for access`);
   }
 }
 
