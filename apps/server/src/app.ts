@@ -1,5 +1,6 @@
 import Fastify, { LogController, type FastifyInstance, type FastifyReply } from 'fastify';
 import { stampInstance } from './instance.js';
+import { registerCanonicalHost } from './galley-canonical-host.js'; // Galley: one address for the site
 import fastifyStatic from '@fastify/static';
 import fs from 'node:fs';
 import net from 'node:net';
@@ -118,6 +119,7 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   // Galley: first onRequest hook, so a refused cross-origin request never
   // reaches the session lookup (origin-check.ts).
+  registerCanonicalHost(app); // Galley: an old address redirects to ALDINE_PUBLIC_URL (opt-in), before anything else
   registerOriginCheck(app);
   registerHttpHeaders(app); // Galley: V2 (WP45) base headers and cache rules on every response
   await initObservability(app);
