@@ -1,5 +1,10 @@
 import { useEffect, useRef } from 'react';
 import { withBase } from '../basePath';
+// Galley: V2 (WP22) optional API additions: settings, the editor page, citation handles.
+import type { EditorPageCtx } from '../features/types';
+import type { SettingsTarget, SectionId } from '../settings/types';
+import { getSetting, subscribeSetting, openSettings as openSettingsPage } from '../settings/store';
+import { diffInsertion, revertInsertion, trackInsertion, type TrackedInsertion } from '../features/references/citeTrack';
 
 /**
  * Aldine plugin host.
@@ -71,6 +76,55 @@ export interface PluginCtx {
  *  in the editor to cite it in. */
 export type CitationResult = 'inserted' | 'added' | 'present' | false;
 
+// ---- Galley: V2 (WP22) optional plugin API additions; third-party plugins that ignore them keep working ----
+
+/** A .bib a reference can go to (GET /api/projects/:id/references/targets). */
+export interface PluginBibFile { path: string; exists: boolean; loaded: boolean; synced: boolean; editable: boolean }
+
+/** What citeWithHandle did; pass it to revert() to take the citation back. Opaque. */
+export interface CitationHandle { readonly key: string; readonly file: string | null }
+
+/** A button on a toast. */
+export interface PluginToastAction { label: string; run(): void }
+
+const handles = new WeakMap<CitationHandle, TrackedInsertion>();
+
+/** The editor page the plugins work against, bound by the references feature's activate(). */
+let boundPage: EditorPageCtx | null = null;
+const pageListeners = new Set<(page: EditorPageCtx | null) => void>();
+
+/** Called from features/references activate(page); the returned function unbinds it. */
+export function bindPluginPage(page: EditorPageCtx): () => void {
+  boundPage = page;
+  for (const fn of [...pageListeners]) fn(page);
+  return () => {
+    if (boundPage !== page) return;
+    boundPage = null;
+    for (const fn of [...pageListeners]) fn(null);
+  };
+}
+
+/** Queries waiting for a plugin panel (`plugin:<id>`), and how to hand one over once it has rendered. */
+const panelInbox = new Map<string, { deliver?: (query: string) => void; pending?: string }>();
+
+function deliverQuery(panelId: string, query: string): void {
+  const box = panelInbox.get(panelId) ?? {};
+  if (box.deliver) box.deliver(query);
+  else panelInbox.set(panelId, { ...box, pending: query });
+}
+
+/**
+ * Show a plugin's panel, with `query` handed to its `onQuery` (a feature's way
+ * in: the references feature opens the References panel from \cite completion).
+ */
+export function showPluginPanel(page: EditorPageCtx | null, pluginPanel: string, query?: string): void {
+  const id = pluginPanel.startsWith('plugin:') ? pluginPanel : `plugin:${pluginPanel}`;
+  if (typeof query === 'string') deliverQuery(id, query);
+  page?.ui.showPanel(id);
+}
+
+const SECTION_RE = /^[a-z-]+$/;
+
 export interface AldineAPI {
   version: 1;
   project: {
@@ -87,22 +141,44 @@ export interface AldineAPI {
      * pull). Returns a function that stops the calls.
      */
     onFilesChanged(listener: () => void): () => void;
+    /** Galley: V2 (WP22) every .bib on the branch a reference could go to. */
+    bibFiles?(): Promise<PluginBibFile[]>;
+    /** Galley: V2 (WP22) false for viewers and showcases: they may read and search, never add. */
+    canEdit?(): boolean;
+    /** Galley: V2 (WP22) called after each typeset finishes (anyone's); returns a function that stops the calls. */
+    onCompiled?(listener: () => void): () => void;
   };
   editor: {
     insertAtCursor(text: string): void;
     /** Cite `key` at the cursor of the open TeX file: in the citation there, else as \cite{key}. */
     insertCitation(key: string): CitationResult;
+    /** Galley: V2 (WP22) insertCitation, plus a handle that revert() takes back (null when nothing changed). */
+    citeWithHandle?(key: string): { result: CitationResult; handle: CitationHandle | null };
+    /** Galley: V2 (WP22) remove a citation citeWithHandle made, while its text is unchanged. False when it could not. */
+    revert?(handle: CitationHandle): boolean;
   };
   compile(): void;
-  toast(text: string, kind?: 'info' | 'error' | 'ok'): void;
+  /** Galley: V2 (WP22) `action` adds a button (Undo) to the toast. */
+  toast(text: string, kind?: 'info' | 'error' | 'ok', action?: PluginToastAction): void;
   fetch(url: string, init?: RequestInit): Promise<Response>;
+  /** Galley: V2 (WP22) read-only view of Laytekz settings (the settings page's ids). */
+  settings?: {
+    get(id: string): unknown;
+    /** Returns a function that stops the calls. */
+    onChange(ids: string | string[], listener: () => void): () => void;
+  };
   ui: {
     /** `render` runs once, when the panel is first shown; `onShow` each time
-     *  it comes into view, which is the moment to re-read what may have changed. */
-    registerSidebarPanel(panel: { id: string; title: string; render(el: HTMLElement): void; onShow?(): void }): void;
+     *  it comes into view, which is the moment to re-read what may have changed.
+     *  Galley: V2 (WP22) `onQuery` receives a query another part of the app
+     *  opened the panel with (after `render`). */
+    registerSidebarPanel(panel: { id: string; title: string; render(el: HTMLElement): void; onShow?(): void; onQuery?(query: string): void }): void;
     /** Select one of this plugin's panels by the id it registered. A hidden
-     *  sidebar is shown too, unless `reveal` is false. */
-    showPanel(id: string, opts?: { reveal?: boolean }): void;
+     *  sidebar is shown too, unless `reveal` is false. Galley: V2 (WP22)
+     *  `query` is handed to the panel's onQuery. */
+    showPanel(id: string, opts?: { reveal?: boolean; query?: string }): void;
+    /** Galley: V2 (WP22) open Laytekz settings at a section ('references') or a row. */
+    openSettings?(target?: SectionId | SettingsTarget): void;
     /** Add a button to the header of the errors list, shown while the last
      *  typeset failed. */
     registerErrorsAction(action: { id: string; label: string; title?: string; run(): void }): void;
@@ -135,6 +211,24 @@ export function PluginHost({ ctx, onPanels, onErrorsActions, onCommands, files }
     const commands: PluginCommand[] = [];
     const listeners = new Set<() => void>();
     filesListeners.current = listeners;
+    // Galley: V2 (WP22) the bound editor page, only while it is this project and branch.
+    const page = (): EditorPageCtx | null => {
+      const p = boundPage;
+      return p && p.projectId === ctxRef.current.projectId && p.branch === ctxRef.current.branch ? p : null;
+    };
+    const compiledListeners = new Set<() => void>();
+    let offCompiled: (() => void) | null = null;
+    const watchCompiles = (p: EditorPageCtx | null) => {
+      offCompiled?.();
+      offCompiled = p ? p.events.on('compileFinished', () => {
+        for (const fn of [...compiledListeners]) {
+          try { fn(); } catch (err) { console.error('[plugins] onCompiled listener failed', err); }
+        }
+      }) : null;
+    };
+    watchCompiles(page());
+    pageListeners.add(watchCompiles);
+    const ownPanels: string[] = [];
 
     const api: AldineAPI = {
       version: 1,
@@ -149,13 +243,61 @@ export function PluginHost({ ctx, onPanels, onErrorsActions, onCommands, files }
           listeners.add(listener);
           return () => { listeners.delete(listener); };
         },
+        // ---- Galley: V2 (WP22) ----
+        bibFiles: async () => {
+          const { projectId, branch } = ctxRef.current;
+          const res = await fetch(withBase(`/api/projects/${encodeURIComponent(projectId)}/references/targets?branch=${encodeURIComponent(branch)}`));
+          if (!res.ok) return [];
+          const body = await res.json() as { targets?: PluginBibFile[] };
+          return Array.isArray(body.targets) ? body.targets : [];
+        },
+        canEdit: () => page()?.canEdit() ?? true,
+        onCompiled: (listener) => {
+          compiledListeners.add(listener);
+          return () => { compiledListeners.delete(listener); };
+        },
       },
       editor: {
         insertAtCursor: (t) => ctxRef.current.insertAtCursor(t),
         insertCitation: (key) => ctxRef.current.insertCitation(key),
+        // Galley: V2 (WP22) the citation's exact change, found by comparing the text before and after.
+        citeWithHandle: (key) => {
+          const view = page()?.view() ?? null;
+          const file = ctxRef.current.getActiveFile();
+          const before = view ? view.state.doc.toString() : null;
+          const result = ctxRef.current.insertCitation(key);
+          if (!view || before === null || !result || result === 'present') return { result, handle: null };
+          const ins = diffInsertion(before, view.state.doc.toString());
+          if (!ins) return { result, handle: null };
+          const handle: CitationHandle = Object.freeze({ key, file });
+          handles.set(handle, trackInsertion(view, file, ins));
+          return { result, handle };
+        },
+        revert: (handle) => {
+          const t = handles.get(handle);
+          const view = page()?.view() ?? null;
+          if (!t || !view || ctxRef.current.getActiveFile() !== t.file) return false;
+          if (!revertInsertion(view, t)) return false;
+          handles.delete(handle);
+          return true;
+        },
       },
       compile: () => ctxRef.current.compile(),
-      toast: (t, k) => ctxRef.current.toast(t, k),
+      // Galley: V2 (WP22) a toast with a button goes through the page, whose toast takes one.
+      toast: (t, k, action) => {
+        const p = page();
+        if (action && typeof action.run === 'function' && typeof action.label === 'string' && p) p.toast(t, k, { label: action.label, run: () => action.run() });
+        else ctxRef.current.toast(t, k);
+      },
+      // Galley: V2 (WP22) read-only settings
+      settings: {
+        get: (settingId) => {
+          try { return getSetting<unknown>(String(settingId)); } catch { return undefined; }
+        },
+        onChange: (ids, listener) => {
+          try { return subscribeSetting(ids, () => { try { listener(); } catch (err) { console.error('[plugins] settings listener failed', err); } }); } catch { return () => {}; }
+        },
+      },
       // plugins address the API root-relatively; the base path is the host's concern
       fetch: (url, init) => fetch(url.startsWith('/') ? withBase(url) : url, init),
       ui: {
@@ -163,9 +305,34 @@ export function PluginHost({ ctx, onPanels, onErrorsActions, onCommands, files }
           const onShow = typeof panel.onShow === 'function'
             ? () => { try { panel.onShow!(); } catch (err) { console.error(`[plugins] ${panel.id}: onShow failed`, err); } }
             : undefined;
-          panels.push({ id: `plugin:${panel.id}`, title: panel.title, mount: (el) => panel.render(el), onShow });
+          // Galley: V2 (WP22) a query sent before the panel rendered waits for it.
+          const id = `plugin:${panel.id}`;
+          const onQuery = typeof panel.onQuery === 'function' ? panel.onQuery.bind(panel) : null;
+          if (onQuery) ownPanels.push(id);
+          const mount = (el: HTMLElement) => {
+            panel.render(el);
+            if (!onQuery) return;
+            const deliver = (q: string) => { try { onQuery(q); } catch (err) { console.error(`[plugins] ${panel.id}: onQuery failed`, err); } };
+            const pending = panelInbox.get(id)?.pending;
+            panelInbox.set(id, { deliver });
+            if (typeof pending === 'string') deliver(pending);
+          };
+          panels.push({ id, title: panel.title, mount, onShow });
         },
-        showPanel: (panelId, opts) => ctxRef.current.showPanel(`plugin:${panelId}`, opts?.reveal !== false),
+        showPanel: (panelId, opts) => {
+          // Galley: V2 (WP22) query
+          if (typeof opts?.query === 'string') deliverQuery(`plugin:${panelId}`, opts.query);
+          ctxRef.current.showPanel(`plugin:${panelId}`, opts?.reveal !== false);
+        },
+        // Galley: V2 (WP22)
+        openSettings: (target) => {
+          const t: SettingsTarget | undefined = typeof target === 'string'
+            ? (SECTION_RE.test(target) ? { section: target } : undefined)
+            : target && typeof target === 'object' ? { section: target.section, setting: target.setting } : undefined;
+          const p = page();
+          if (p) p.openSettings(t);
+          else openSettingsPage(t);
+        },
         registerErrorsAction(action) {
           actions.push({ id: action.id, label: action.label, title: action.title, run: () => action.run() });
         },
@@ -198,7 +365,12 @@ export function PluginHost({ ctx, onPanels, onErrorsActions, onCommands, files }
       }
     })();
 
-    return () => { cancelled = true; listeners.clear(); onPanels([]); onErrorsActions?.([]); onCommands?.([]); };
+    return () => {
+      cancelled = true; listeners.clear(); onPanels([]); onErrorsActions?.([]); onCommands?.([]);
+      // Galley: V2 (WP22)
+      pageListeners.delete(watchCompiles); offCompiled?.(); compiledListeners.clear();
+      for (const id of ownPanels) panelInbox.delete(id);
+    };
     // re-activate per project/branch so panels rebuild against fresh context
   }, [ctx.projectId, ctx.branch]);
 

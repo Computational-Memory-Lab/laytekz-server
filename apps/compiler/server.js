@@ -6,6 +6,7 @@
  *   POST /compile  { projectDir, rootFile, engine?, clean? }  ->
  *     { ok, pdf: <path in OUT_DIR>, log, errors: [{file,line,message,type}], durationMs, stopped? }
  *     clean: true removes the root's .aldine-out before the run (cleanOutput)
+ *     Galley: buildAux: false leaves out the glossary rules (glossary-rules.js)
  *   POST /stop     { projectDir }  -> { ok: true, stopped: <typesets of that directory ended> }
  *     ends that directory's running or waiting typesets, which answer stopped: true
  *   GET  /health   -> { ok: true, texlive: { release: '2026' | 'unknown', scheme: 'full' | 'medium' | 'unknown' },
@@ -37,6 +38,10 @@ const preamble = require('./preamble.js');
 const thumbnail = require('./thumbnail.js');
 const formatter = require('./format.js');
 const guard = require('./guard.js');
+// Galley: V2 build outputs (WP30). Optional: an image whose Dockerfile does not copy them yet typesets as before.
+const optional = (m) => { try { return require(m); } catch { return null; } };
+const auxRules = optional('./glossary-rules.js');
+const bibMissing = optional('./bib-missing.js');
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 4020;
 const DATA_DIR = process.env.DATA_DIR || path.resolve(__dirname, '../../.data');
@@ -542,6 +547,8 @@ async function compileInner(body, job) {
     // latexmk's fdb still records what is out of date, so the next full run
     // picks up the reruns and the bibliography this one skipped.
     ...(draft ? ['-e', '$max_repeat=1; $bibtex_use=0;'] : []),
+    // Galley: V2 build outputs (WP30) glossary, acronym and nomenclature rules on full runs (glossary-rules.js); buildAux: false is the project's switch.
+    ...(draft || body.buildAux === false || !auxRules ? [] : auxRules.args()),
     '-interaction=nonstopmode',
     // Without -halt-on-error TeX runs to the end of the document and latexmk
     // still exits non-zero when errors occurred, so the caller gets a complete
@@ -693,6 +700,8 @@ async function compileInner(body, job) {
   });
   errors.length = 0;
   errors.push(...deduped);
+  // Galley: V2 build outputs (WP30) which glossary was not built, and which bibliography is stale or missing.
+  if (auxRules && bibMissing && !draft && !timedOut && !job.stopped && documentBodyReached(log)) errors.push(...auxRules.warnings({ outAbs, base, buildAux: body.buildAux !== false }), ...bibMissing.warnings({ outAbs, base, cwd: path.join(absDir, rootDir), projectAbs: absDir, freshSince, errors }));
   // A draft that stopped at its one pass exits non-zero with "Maximum runs"
   // although TeX itself succeeded; that is the draft working, not an error.
   const draftCapped = draft && /Maximum runs of \S+ reached/i.test(out) && !errors.some((e) => e.type === 'error');

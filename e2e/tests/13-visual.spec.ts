@@ -212,6 +212,14 @@ test.describe('visual editor', () => {
       }
       await page.keyboard.press('End');
       await page.keyboard.press('Home');
+      // Galley: V2 (WP37) a highlight over prose and the bold construct is drawn and changes no byte either.
+      await page.locator('.cm-line', { hasText: 'More prose here.' }).click();
+      await page.keyboard.press('Home');
+      await page.keyboard.press('Shift+End');
+      await page.keyboard.press(`${process.platform === 'darwin' ? 'Meta' : 'Control'}+Shift+KeyH`);
+      await expect(page.locator('.cm-hl')).not.toHaveCount(0);
+      await page.locator('.cm-vis-b').first().click({ force: true }).catch(() => {});
+      for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowRight');
       // let the collab layer flush any (nonexistent) writes
       await page.waitForTimeout(3000);
       const res = await request.get(`/api/projects/${id}/file?branch=main&path=main.tex`);

@@ -4,6 +4,7 @@ import { useAuth } from './Auth';
 import { useToast } from './Toast';
 import Modal from './Modal';
 import { PRODUCT_NAME } from '../product'; // Galley: the product's own name
+import { useCapabilities } from '../settings/capabilities'; // Galley: V2 (WP25): registration open or closed
 /** The name `claude mcp add` gives the connector, which /mcp then lists. */
 const MCP_NAME = PRODUCT_NAME.toLowerCase();
 
@@ -19,7 +20,7 @@ export function unreachableFromCloud(url: string): boolean {
   } catch { return true; }
 }
 
-type Client = 'cloud' | 'code' | 'chatgpt';
+type Client = 'cloud' | 'code' | 'chatgpt' | 'codex'; // Galley: V2 (WP25): Codex
 
 /** The address the assistant is given: ALDINE_PUBLIC_URL when the server has one
  *  (what its OAuth metadata names too), else the address this page came from. */
@@ -40,8 +41,14 @@ export function ClaudeConnectSteps({ compact = false }: { compact?: boolean }) {
   const connectorUrl = useConnectorUrl();
   const cloudBlocked = unreachableFromCloud(connectorUrl);
   const [client, setClient] = useState<Client>(cloudBlocked ? 'code' : 'cloud');
-  const header = authEnabled ? '' : ' --header "X-Laytekz-Token: <ALDINE_MCP_TOKEN>"';
+  // Galley: V2 (WP25): with accounts on but OAuth registration closed, /mcp's
+  // sign-in cannot finish, so Claude Code and Codex get an access token instead.
+  const caps = useCapabilities();
+  const tokenCommands = authEnabled && caps.mcp && !caps.oauthRegistration;
+  const header = !authEnabled ? ' --header "X-Laytekz-Token: <ALDINE_MCP_TOKEN>"' : tokenCommands ? ' --header "Authorization: Bearer <token>"' : '';
   const command = `claude mcp add --transport http ${MCP_NAME} ${connectorUrl}${header}`;
+  const tokenPlaceholder = authEnabled ? '<token>' : '<ALDINE_MCP_TOKEN>';
+  const codexCommands = `export LAYTEKZ_TOKEN=${tokenPlaceholder}\ncodex mcp add ${MCP_NAME} --url ${connectorUrl} --bearer-token-env-var LAYTEKZ_TOKEN`;
 
   const copy = async (value: string, label: string) => {
     try {
@@ -76,7 +83,9 @@ export function ClaudeConnectSteps({ compact = false }: { compact?: boolean }) {
   const code = (
     <>
       <p className="connect__text">
-        {authEnabled
+        {tokenCommands
+          ? `Create an access token under Agent access in Account settings (you can limit it to some projects), then run this once in a terminal, with the token in place of the placeholder.`
+          : authEnabled
           ? `Run this once in Claude Code, then type /mcp in a session and pick ${PRODUCT_NAME}. It asks which projects Claude may touch.`
           : 'Run this once in a terminal, with this server\'s ALDINE_MCP_TOKEN in place of the placeholder (whoever runs the server has it).'}
       </p>
@@ -86,6 +95,26 @@ export function ClaudeConnectSteps({ compact = false }: { compact?: boolean }) {
       </div>
       {cloudBlocked && unreachable}
     </>
+  );
+  // Galley: V2 (WP25): Codex, with the token read from an environment variable.
+  const codex = (
+    <div data-testid="agent-codex">
+      <p className="connect__text">
+        {authEnabled
+          ? 'Create an access token under Agent access in Account settings, then run these two lines in a terminal, with the token in place of the placeholder.'
+          : 'Run these two lines in a terminal, with this server\'s ALDINE_MCP_TOKEN in place of the placeholder (whoever runs the server has it).'}
+      </p>
+      <div className="agent-command">
+        <code data-testid="agent-codex-command" style={{ whiteSpace: 'pre-wrap' }}>{codexCommands}</code>
+        <button className="btn btn--small" onClick={() => copy(codexCommands, 'Commands')} data-testid="agent-codex-copy">Copy commands</button>
+      </div>
+      <p className="connect__text connect__text--quiet">Keep <code>LAYTEKZ_TOKEN</code> set in the terminal you start Codex from.</p>
+    </div>
+  );
+  const desktopHint = (
+    <p className="connect__text connect__text--quiet" data-testid="agent-desktop-hint">
+      The {PRODUCT_NAME} desktop app sets this up for you: open View → Console and press ▶ Claude Code or ▶ Codex.
+    </p>
   );
   const cloudShort = (
     <>
@@ -125,17 +154,23 @@ export function ClaudeConnectSteps({ compact = false }: { compact?: boolean }) {
 
   // Account settings keeps to one route so the token list stays in view; a
   // switch between clients only makes sense when claude.ai can reach us.
-  if (compact || cloudBlocked) return <div className="connect" data-testid="claude-connect">{cloudBlocked ? code : cloudShort}</div>;
+  if (compact) return <div className="connect" data-testid="claude-connect">{cloudBlocked ? code : cloudShort}</div>;
+  // Galley: V2 (WP25): where only local assistants reach the server, Claude Code and Codex one after the other.
+  if (cloudBlocked) return <div className="connect" data-testid="claude-connect">{code}{codex}{desktopHint}</div>;
 
   return (
     <div className="connect" data-testid="claude-connect">
       <div className="seg connect__clients" role="tablist" aria-label="Assistant">
         <button role="tab" aria-selected={client === 'cloud'} className={`seg__btn ${client === 'cloud' ? 'seg__btn--active' : ''}`} onClick={() => setClient('cloud')} data-testid="connect-client-cloud">claude.ai, Desktop, Cowork</button>
         <button role="tab" aria-selected={client === 'code'} className={`seg__btn ${client === 'code' ? 'seg__btn--active' : ''}`} onClick={() => setClient('code')} data-testid="connect-client-code">Claude Code</button>
+        {/* Galley: V2 (WP25): Codex */}
+        <button role="tab" aria-selected={client === 'codex'} className={`seg__btn ${client === 'codex' ? 'seg__btn--active' : ''}`} onClick={() => setClient('codex')} data-testid="connect-client-codex">Codex</button>
         <button role="tab" aria-selected={client === 'chatgpt'} className={`seg__btn ${client === 'chatgpt' ? 'seg__btn--active' : ''}`} onClick={() => setClient('chatgpt')} data-testid="connect-client-chatgpt">ChatGPT</button>
       </div>
-      {client === 'cloud' ? cloudSteps : client === 'code' ? code : chatgpt}
-      <p className="connect__text connect__text--quiet">To check it, ask {client === 'chatgpt' ? 'ChatGPT' : 'Claude'} to ping {PRODUCT_NAME} or to list your projects.</p>
+      {client === 'cloud' ? cloudSteps : client === 'code' ? code : client === 'codex' ? codex : chatgpt}
+      {/* Galley: V2 (WP25): the desktop console does it for Claude Code and Codex */}
+      {(client === 'code' || client === 'codex') && desktopHint}
+      <p className="connect__text connect__text--quiet">To check it, ask {client === 'chatgpt' ? 'ChatGPT' : client === 'codex' ? 'Codex' : 'Claude'} to ping {PRODUCT_NAME} or to list your projects.</p>
     </div>
   );
 }

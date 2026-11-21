@@ -11,6 +11,7 @@
 import * as Y from 'yjs';
 import { GutterMarker, ViewPlugin, gutter, type EditorView } from '@codemirror/view';
 import { RangeSet, StateEffect, StateField, type Extension, type Text } from '@codemirror/state';
+import { resolveMany } from './yAnchor'; // Galley: V2 (WP32) shared anchors
 
 /** The side map's name, a wire identifier shared with the server. */
 export const AGENT_EDITS_KEY = 'agentEdits';
@@ -24,25 +25,24 @@ interface Stored { k?: unknown; a?: unknown; b?: unknown; t?: unknown }
  *  whose text has all been deleted since is gone. */
 export function resolveMarks(ydoc: Y.Doc, ytext: Y.Text, keys?: Iterable<string>): AgentMark[] {
   const map = ydoc.getMap<Stored>(AGENT_EDITS_KEY);
-  const at = (json: unknown): number | null => {
-    if (!json || typeof json !== 'object') return null;
-    try {
-      const pos = Y.createAbsolutePositionFromRelativePosition(Y.createRelativePositionFromJSON(json), ydoc);
-      return pos && pos.type === ytext ? pos.index : null;
-    } catch { return null; }
-  };
-  const out: AgentMark[] = [];
+  // Galley: V2 (WP32) the positions resolve in one pass (editor/yAnchor.ts), same answers as one by one.
+  const stored: Array<{ key: string; v: Stored & { t: number } }> = [];
   for (const key of keys ?? map.keys()) {
     const v = map.get(key);
     if (!v || typeof v.t !== 'number') continue;
-    const from = at(v.a);
-    if (from === null) continue;
-    if (v.k === 'del') { out.push({ key, kind: 'del', from, to: from, t: v.t }); continue; }
-    if (v.k !== 'ins') continue;
-    const to = at(v.b);
-    if (to === null || to <= from) continue;
-    out.push({ key, kind: 'ins', from, to, t: v.t });
+    stored.push({ key, v: v as Stored & { t: number } });
   }
+  const pos = resolveMany(ydoc, ytext, stored.flatMap(({ v }) => [v.a, v.k === 'ins' ? v.b : null]));
+  const out: AgentMark[] = [];
+  stored.forEach(({ key, v }, i) => {
+    const from = pos[2 * i];
+    if (from === null) return;
+    if (v.k === 'del') { out.push({ key, kind: 'del', from, to: from, t: v.t }); return; }
+    if (v.k !== 'ins') return;
+    const to = pos[2 * i + 1];
+    if (to === null || to <= from) return;
+    out.push({ key, kind: 'ins', from, to, t: v.t });
+  });
   return out;
 }
 

@@ -7,13 +7,17 @@ import * as Y from 'yjs';
 import { branchDir, readMeta } from './store.js';
 import { config } from './config.js';
 import { autosave, ensureWorktree, registerAttributedPaths, pendingAttributionKeys, commitAgentWriteHeld, AGENT_COMMIT_AUTHOR } from './gitops.js';
+import { currentAgentAuthor, type AgentAuthor } from './gitops.js'; // Galley: V2 (WP42): the agent's name
 import { safeJoin, debouncePerKey, importPath, isHiddenPath } from './util.js';
 import { replaceFileDurable } from './durable.js';
 import { AUTH_ENABLED, TOKEN_PREFIX, userFromRequest, userFromToken } from './auth.js';
 import { canAccess, canEdit } from './authz.js';
 import { redisAvailable, createDedicatedClient } from './redis.js';
 import { noteEdit, AGENT_EDITOR, editorOf } from './activity.js';
+import { agentEditor } from './activity.js'; // Galley: V2 (WP42)
 import { diffSpans } from './textdiff.js';
+import { EventEmitter } from 'node:events'; // Galley: V2 branchChangeEvents
+import type { BranchChange, BranchChangesEmitter, DocLoadHook } from './features/types.js'; // Galley: V2 collab primitives
 
 /**
  * Document naming: `${projectId}/${branch}/${filePath}`
@@ -169,16 +173,18 @@ export function scheduleCommit(projectId: string, branch: string, message?: stri
  * hold the repo lock.
  */
 export async function commitAgentWrite(projectId: string, branch: string, files: Array<{ path: string; before: string | Buffer | null; after: string }>, message: string): Promise<{ hash: string | null; unchanged: boolean }> {
+  // Galley: V2 (WP42): read while the MCP request runs; the retry keeps the name.
+  const agent = currentAgentAuthor();
   try {
-    const res = await commitAgentWriteHeld(projectId, branch, files, message);
+    const res = await commitAgentWriteHeld(projectId, branch, files, message, agent);
     if (!res.committed) return { hash: null, unchanged: true };
-    noteEdit(projectId, branch, AGENT_EDITOR);
+    noteEdit(projectId, branch, agentEditor(agent));
     notifyCommitted(projectId, branch);
     return { hash: res.hash ?? null, unchanged: false };
   } catch (err) {
     console.warn(`[collab] commit of ${files.map((f) => f.path).join(', ')} failed, left for the autosave: ${(err as Error).message}`);
-    noteEdit(projectId, branch, AGENT_EDITOR);
-    scheduleCommit(projectId, branch, message, AGENT_COMMIT_AUTHOR, files.map((f) => f.path));
+    noteEdit(projectId, branch, agentEditor(agent));
+    scheduleCommit(projectId, branch, message, agent, files.map((f) => f.path));
     return { hash: null, unchanged: false };
   }
 }
@@ -374,6 +380,7 @@ export function markPathsChanged(projectId: string, branch: string, paths: strin
   const c = changesOf(projectId, branch);
   c.version += 1;
   for (const p of paths) c.paths.set(pathKey(p), c.version);
+  emitBranchChange(projectId, branch, paths.map(pathKey), c.version); // Galley: V2 branchChangeEvents
   return c.version;
 }
 /** Bump the branch version and count every path — known or not — as changed at it. */
@@ -382,6 +389,7 @@ export function markTreeChanged(projectId: string, branch: string): number {
   c.version += 1;
   c.tree = c.version;
   c.paths.clear();
+  emitBranchChange(projectId, branch, null, c.version); // Galley: V2 branchChangeEvents
   return c.version;
 }
 /** The branch version at which `filePath` last changed (0 = untouched this process lifetime). */
@@ -588,6 +596,7 @@ export const hocuspocus: Hocuspocus = HocuspocusServer.configure({
       if (content.length > 0) text.insert(0, content);
       writeSnapshot(documentName, document); // establish a snapshot for future reconnects
     }
+    runDocLoadHooks(documentName, document); // Galley: V2 registerDocLoadHook (ServerFeature.onDocLoad)
     // Track lastWritten against disk so the first store of an unchanged doc
     // skips the .tex rewrite (no latexmk churn) — a file with mixed line
     // endings included, which is left as it is until someone edits it.
@@ -600,6 +609,7 @@ export const hocuspocus: Hocuspocus = HocuspocusServer.configure({
   // The branch's signal doc carries the session for every file.
   async afterLoadDocument({ documentName, document }: { documentName: string; document: AwarenessDoc }) {
     const parsed = parseDocName(documentName);
+    if (parsed && !isSignalDoc(parsed.filePath)) watchTextChanges(document as unknown as Y.Doc); // Galley: V2, side-map-only updates are not edits
     if (parsed?.filePath === FILES_SIGNAL) { publishBranchAgent(parsed.projectId, parsed.branch); return; }
     const live = agentPresence.get(documentName);
     if (live && live.expiresAt > Date.now()) setAgentAwareness(document, live);
@@ -612,8 +622,9 @@ export const hocuspocus: Hocuspocus = HocuspocusServer.configure({
   // the server made itself (a REST or tool write, a git rewrite, the agent)
   // is recorded by whatever made it, and one relayed from a peer node by
   // that node.
-  async onChange({ documentName, context, transactionOrigin }: { documentName: string; context?: { userId?: string; userName?: string | null }; transactionOrigin?: unknown }) {
+  async onChange({ documentName, context, transactionOrigin, update }: { documentName: string; context?: { userId?: string; userName?: string | null }; transactionOrigin?: unknown; update?: Uint8Array }) {
     if (!transactionOrigin || typeof transactionOrigin !== 'object') return;
+    if (update && sideMapUpdates.has(update)) return; // Galley: V2, an update that left the text alone (highlights, marks) is not an edit
     const parsed = parseDocName(documentName);
     if (!parsed || isSignalDoc(parsed.filePath)) return;
     noteEdit(parsed.projectId, parsed.branch, context?.userId ? editorOf({ id: context.userId, name: context.userName }) : null);
@@ -677,11 +688,12 @@ export function evictTree(projectId: string, branch: string, dir: string, files:
   bumpFilesSignal(projectId, branch);
 }
 
-function dropDoc(name: string): void {
+function dropDoc(name: string, keepSnapshot = false): void { // Galley: keepSnapshot for V2 moveDocState
   tombstone(name);
   lastWritten.delete(name);
   crlfDocs.delete(name);
-  deleteSnapshot(name); // file deleted/renamed → drop its collab snapshot so a re-create starts clean
+  if (keepSnapshot) lastSnapshot.delete(name); // Galley: moveDocState carries the snapshot file to the new path
+  else deleteSnapshot(name); // file deleted/renamed → drop its collab snapshot so a re-create starts clean
   const doc = hocuspocus.documents.get(name) as (Y.Doc & { destroy?: () => void }) | undefined;
   if (doc) {
     // Clients still on this doc would keep editing a file that no longer
@@ -888,10 +900,11 @@ export const AGENT_ORIGIN = 'aldine-agent';
  *  collapse. Field shape mirrors what CodePane.tsx sets for humans. */
 export const AGENT_AWARENESS_USER = { name: 'Claude', color: '#a78bfa', colorLight: '#a78bfa55', isAgent: true } as const;
 
-/** "Claude (for Ada)": the people whose tokens the session's calls ran under. */
-export function agentDisplayName(owners: Iterable<string>): string {
+/** "Claude (for Ada)": the people whose tokens the session's calls ran under.
+ *  Galley: V2 (WP42): under the agent's own name ("Codex (for Ada)"). */
+export function agentDisplayName(owners: Iterable<string>, agent: string = AGENT_AWARENESS_USER.name): string {
   const names = [...new Set(owners)].filter(Boolean);
-  return names.length ? `${AGENT_AWARENESS_USER.name} (for ${names.join(', ')})` : AGENT_AWARENESS_USER.name;
+  return names.length ? `${agent} (for ${names.join(', ')})` : agent;
 }
 
 /** Overridable so the session-review e2e can see the idle toast without a 60 s wait. */
@@ -901,7 +914,7 @@ const AGENT_PRESENCE_TTL_MS = Number(process.env.ALDINE_AGENT_PRESENCE_TTL_MS ||
  *  whom. Kept apart from the loaded docs on purpose — Hocuspocus unloads a
  *  doc with its last connection (a sole viewer's reload), and the presence
  *  must outlive that so the reloaded doc shows it again. */
-interface AgentPresence { expiresAt: number; timer: NodeJS.Timeout; owners: Set<string>; session: string }
+interface AgentPresence { expiresAt: number; timer: NodeJS.Timeout; owners: Set<string>; session: string; agent: AgentAuthor /* Galley: V2 (WP42) */ }
 const agentPresence = new Map<string, AgentPresence>();
 
 /**
@@ -912,7 +925,7 @@ const agentPresence = new Map<string, AgentPresence>();
  * not on one file's presence: a person who switches files, or never opens
  * the one Claude is in, must not see a session end that has not.
  */
-interface AgentSession { startedAt: number; expiresAt: number; holds: number; timer: NodeJS.Timeout | null; owners: Set<string> }
+interface AgentSession { startedAt: number; expiresAt: number; holds: number; timer: NodeJS.Timeout | null; owners: Set<string>; agent: AgentAuthor /* Galley: V2 (WP42): the newest write's */ }
 const agentSessions = new Map<string, AgentSession>();
 type AwarenessDoc = { awareness?: { setLocalState(s: unknown): void; getLocalState(): unknown } };
 
@@ -923,7 +936,7 @@ function setAgentAwareness(doc: AwarenessDoc | undefined, live: AgentPresence): 
   // setLocalState, not setLocalStateField: Hocuspocus nulls the server-side
   // local state at doc creation, and y-protocols' setLocalStateField is a
   // silent no-op on a null state — the agent would never appear.
-  doc?.awareness?.setLocalState({ user: { ...AGENT_AWARENESS_USER, name: agentDisplayName(live.owners), startedAt: session?.startedAt ?? Date.now() } });
+  doc?.awareness?.setLocalState({ user: { ...AGENT_AWARENESS_USER, name: agentDisplayName(live.owners, live.agent) /* Galley: V2 (WP42) */, startedAt: session?.startedAt ?? Date.now() } });
 }
 
 /**
@@ -946,7 +959,7 @@ function publishBranchAgent(projectId: string, branch: string): void {
   const files: string[] = [];
   for (const [name, live] of agentPresence) if (name.startsWith(prefix) && live.expiresAt > now) files.push(name.slice(prefix.length));
   try {
-    doc.awareness.setLocalState({ user: { ...AGENT_AWARENESS_USER, name: agentDisplayName(session.owners), startedAt: session.startedAt }, files: files.sort() });
+    doc.awareness.setLocalState({ user: { ...AGENT_AWARENESS_USER, name: agentDisplayName(session.owners, session.agent) /* Galley: V2 (WP42) */, startedAt: session.startedAt }, files: files.sort() });
   } catch { /* doc unloaded meanwhile */ }
 }
 
@@ -982,12 +995,14 @@ export function markAgentPresence(projectId: string, branch: string, filePath: s
   const name = docName(projectId, branch, filePath);
   const key = changesKey(projectId, branch);
   const now = Date.now();
+  const agent = currentAgentAuthor(); // Galley: V2 (WP42): the agent this MCP request speaks for
   let session = agentSessions.get(key);
   if (!session || !sessionLive(session, now)) {
     if (session?.timer) clearTimeout(session.timer);
-    session = { startedAt: now, expiresAt: 0, holds: 0, timer: null, owners: new Set() };
+    session = { startedAt: now, expiresAt: 0, holds: 0, timer: null, owners: new Set(), agent };
     agentSessions.set(key, session);
   }
+  session.agent = agent; // Galley: V2 (WP42)
   session.expiresAt = now + AGENT_PRESENCE_TTL_MS;
   if (owner) session.owners.add(owner);
   armSession(key, session);
@@ -1002,7 +1017,7 @@ export function markAgentPresence(projectId: string, branch: string, filePath: s
   timer.unref?.();
   const owners = new Set(prev && prev.expiresAt > now ? prev.owners : []);
   if (owner) owners.add(owner);
-  const live: AgentPresence = { expiresAt: now + AGENT_PRESENCE_TTL_MS, timer, owners, session: key };
+  const live: AgentPresence = { expiresAt: now + AGENT_PRESENCE_TTL_MS, timer, owners, session: key, agent /* Galley: V2 (WP42) */ };
   agentPresence.set(name, live);
   setAgentAwareness(hocuspocus.documents.get(name) as AwarenessDoc | undefined, live);
   publishBranchAgent(projectId, branch);
@@ -1163,4 +1178,249 @@ export function refreshBranchDocsFromDisk(projectId: string, branch: string, cha
     try { raw = fs.readFileSync(safeJoin(branchDir(projectId, branch), filePath), 'utf8'); } catch { continue; }
     markClosedDoc(docName(projectId, branch, filePath), before, raw);
   }
+}
+
+// ---- Galley: V2 collab primitives (signatures frozen by WP01; built and
+// tested by WP03, wired by their consumers in later waves). Types:
+// features/types.ts. Everything here is synchronous: callers may hold the
+// repo lock, and a hash or a snapshot must be taken in the same tick as the
+// write it describes.
+
+/** First 16 hex digits of the SHA-256 of `text` with LF line endings, as
+ *  UTF-8: what the web client computes over CodeMirror's text, which never
+ *  holds a CR. */
+function textHash(text: string): string {
+  const lf = text.includes('\r') ? text.replace(/\r\n?/g, '\n') : text;
+  return crypto.createHash('sha256').update(lf, 'utf8').digest('hex').slice(0, 16);
+}
+
+/** Galley: flushBranchDocs that also returns, for every loaded doc of a
+ *  project file it flushed, path → textHash of its Y.Text, read in the same
+ *  synchronous pass as writeDocToDisk (never from the disk bytes, which
+ *  diskText may give CRLF). A doc whose branch directory is gone is still
+ *  listed; the compile that reads the hashes fails on that branch anyway. */
+export function flushBranchDocsHashed(projectId: string, branch: string): Record<string, string> {
+  // No prototype: a file may be called __proto__.
+  const out = Object.create(null) as Record<string, string>;
+  hocuspocus.documents.forEach((doc: Y.Doc, name: string) => {
+    const parsed = parseDocName(name);
+    if (!parsed || parsed.projectId !== projectId || parsed.branch !== branch) return;
+    const text = doc.getText(TEXT_KEY).toString();
+    writeDocToDisk(name, doc);
+    if (isSignalDoc(parsed.filePath) || !isProjectFile(parsed.filePath) || tombstoned.has(name)) return;
+    out[parsed.filePath] = textHash(text);
+  });
+  return out;
+}
+
+const branchChangeEmitter = new EventEmitter();
+// One listener per feature that caches per branch (indexes, highlights, word counts).
+branchChangeEmitter.setMaxListeners(100);
+
+/** Galley: the plan's "branchChanges emitter" (that name is the version map
+ *  above): 'change' fires from markPathsChanged and markTreeChanged, so on
+ *  every change of a branch's files on disk (a doc store, a REST or tool
+ *  write, a git rewrite with `paths` null), after the version moved.
+ *  Listeners run synchronously inside the write, often under the repo lock:
+ *  they record and return, and do their work later. One that throws is
+ *  logged and the others still run. */
+export const branchChangeEvents: BranchChangesEmitter = branchChangeEmitter;
+
+function emitBranchChange(projectId: string, branch: string, paths: string[] | null, version: number): void {
+  // rawListeners: a listener added with once() is removed by its own call.
+  const listeners = branchChangeEmitter.rawListeners('change') as Array<(c: BranchChange) => void>;
+  if (!listeners.length) return;
+  const change: BranchChange = Object.freeze({ projectId, branch, paths: paths && Object.freeze(paths), version });
+  for (const fn of listeners) {
+    try { fn(change); } catch (err) { console.error(`[collab] a branch change listener failed: ${(err as Error).message}`); }
+  }
+}
+
+/** Galley: replaces a loaded doc's text with `after` (CRs dropped, as every
+ *  doc holds LF) by its minimal changed spans, the applier
+ *  refreshBranchDocsFromDisk uses, in one transaction with `origin`, then
+ *  writes the doc to disk. AGENT_ORIGIN marks the spans as Claude's, as
+ *  applySuggestionToDoc does. Returns the changed spans in the new text's
+ *  offsets ([] when the text was already `after`), or null when the file has
+ *  no loaded doc: the caller then writes the file, which is safe. */
+export function applySpansToDoc(projectId: string, branch: string, filePath: string, after: string, origin?: unknown): Array<{ from: number; to: number }> | null {
+  if (isSignalDoc(filePath) || !isProjectFile(filePath)) return null;
+  const name = docName(projectId, branch, filePath);
+  const doc = hocuspocus.documents.get(name) as Y.Doc | undefined;
+  if (!doc || tombstoned.has(name)) return null;
+  const text = doc.getText(TEXT_KEY);
+  const held = text.toString();
+  const next = after.replace(/\r\n?/g, '\n');
+  let spans: Array<{ from: number; to: number }> = [];
+  if (held !== next) {
+    doc.transact(() => {
+      spans = applyTextDiff(text, held, next);
+      if (origin === AGENT_ORIGIN) markAgentSpans(doc, spans);
+    }, origin);
+  }
+  writeDocToDisk(name, doc);
+  return spans;
+}
+
+/** One file of a move: the old name's doc evicted as evictDoc does, its
+ *  snapshot carried to the new name. */
+function moveOneDocState(projectId: string, branch: string, from: string, to: string): void {
+  const oldName = docName(projectId, branch, from);
+  const newName = docName(projectId, branch, to);
+  if (!isProjectFile(from) || !isProjectFile(to)) { dropDoc(oldName); return; }
+  const live = hocuspocus.documents.get(oldName) as Y.Doc | undefined;
+  // The snapshot of a loaded doc may lag its last updates by the store debounce.
+  if (live && !tombstoned.has(oldName)) writeSnapshot(oldName, live);
+  dropDoc(oldName, true);
+  // A doc loaded at the target, or one deleted there seconds ago whose
+  // clients may still reconnect, keeps its own identity: carrying the
+  // snapshot over it would merge two unrelated histories. Today's
+  // behaviour then: the moved file seeds from its text.
+  if (hocuspocus.documents.has(newName) || tombstoned.has(newName)) { deleteSnapshot(oldName); return; }
+  lastSnapshot.delete(newName);
+  try {
+    fs.renameSync(snapPath(oldName), snapPath(newName));
+  } catch (err) {
+    // No snapshot at the old path (never opened): none may stay at the new
+    // one either, or a stale state of some earlier file would load there.
+    deleteSnapshot(newName);
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+      console.error(`[collab] moving the snapshot of ${from} to ${to} failed, it loads from its file: ${(err as Error).message}`);
+      deleteSnapshot(oldName);
+    }
+  }
+}
+
+/** Galley: a renamed file or folder keeps its Yjs snapshot (and so its side
+ *  maps: highlights, agent marks) instead of losing it to deleteSnapshot.
+ *  Replaces evictDoc / evictTree in a rename: loaded docs under the old
+ *  path get their latest state written to the snapshot, are evicted
+ *  (tombstoned, sockets closed) and their snapshots renamed; the branch's
+ *  files signal is bumped. `files`: for a folder, the paths before the move
+ *  (the branch listing evictTree takes); closed docs not in it keep their
+ *  snapshot under the old name. Writes no text, so it may run before or
+ *  after the files move on disk (the caller flushes first, as the rename
+ *  route does today); never reseeds a doc from plain text: a new doc loads
+ *  the moved snapshot and takes the file's text from disk by its diff. */
+export function moveDocState(projectId: string, branch: string, from: string, to: string, opts?: { folder?: boolean; files?: readonly string[] }): void {
+  const src = pathKey(from).replace(/\/+$/, '');
+  const dst = pathKey(to).replace(/\/+$/, '');
+  if (src === dst) return;
+  if (!opts?.folder) {
+    moveOneDocState(projectId, branch, src, dst);
+  } else {
+    const inside = (p: string) => p.startsWith(`${src}/`);
+    const olds = new Set((opts.files ?? []).map(pathKey).filter(inside));
+    hocuspocus.documents.forEach((_doc: Y.Doc, name: string) => {
+      const parsed = parseDocName(name);
+      if (parsed && parsed.projectId === projectId && parsed.branch === branch && inside(parsed.filePath)) olds.add(parsed.filePath);
+    });
+    for (const p of olds) moveOneDocState(projectId, branch, p, dst + p.slice(src.length));
+  }
+  bumpFilesSignal(projectId, branch);
+}
+
+/** Galley: copies the snapshots of `paths` to another branch or project
+ *  (branch creation, project copy), so their side maps come along and the
+ *  copies share the source's history instead of seeding fresh text. A
+ *  loaded source doc gives its live state, a closed one its snapshot (none,
+ *  or a damaged one: nothing copied). A target doc that is loaded, or was
+ *  deleted seconds ago, is skipped; any other snapshot at the target is
+ *  replaced. The target loads it and takes its file's text from disk by its
+ *  diff. Returns how many were copied. */
+export function copyDocState(from: { projectId: string; branch: string }, to: { projectId: string; branch: string }, paths: readonly string[]): number {
+  if (from.projectId === to.projectId && from.branch === to.branch) return 0;
+  let copied = 0;
+  for (const raw of new Set(paths.map(pathKey))) {
+    if (!isProjectFile(raw)) continue;
+    const src = docName(from.projectId, from.branch, raw);
+    const dst = docName(to.projectId, to.branch, raw);
+    if (hocuspocus.documents.has(dst) || tombstoned.has(dst)) continue;
+    const live = hocuspocus.documents.get(src) as Y.Doc | undefined;
+    const state = live && !tombstoned.has(src) ? Y.encodeStateAsUpdate(live) : readSnapshot(src);
+    if (!state) continue;
+    try {
+      fs.mkdirSync(YJS_DIR, { recursive: true });
+      replaceFileDurable(snapPath(dst), state);
+      lastSnapshot.delete(dst);
+      copied++;
+    } catch (err) {
+      console.error(`[collab] copying the snapshot of ${raw} failed, the copy loads from its file: ${(err as Error).message}`);
+    }
+  }
+  return copied;
+}
+
+/** The files signal's own keys (setSignal): a feature value there would make
+ *  every open editor think the file list changed or an agent wrote. */
+const BUILT_IN_SIGNAL_KEYS = new Set(['v', 'a', 'ts', 'td', 'c', 'r']);
+
+/** Galley: sets `key` to `value` in the files-signal map (FILES_SIGNAL's
+ *  'signal' Y.Map) of one loaded branch, or of every loaded branch of the
+ *  project with '*'. Clients hear it through branchSignal.onSignal(key). A
+ *  branch nobody has open has no signal doc: nothing to tell, nothing done.
+ *  `value` is any JSON value; a client compares it with the last one it
+ *  saw, so a repeated signal carries a new value (a revision, a time). The
+ *  built-in keys throw: they are the server's own stamps. */
+export function signalBranch(projectId: string, branch: string | '*', key: string, value: unknown): void {
+  if (typeof key !== 'string' || !key || BUILT_IN_SIGNAL_KEYS.has(key)) throw new Error(`signalBranch: ${JSON.stringify(key)} is not a key features may signal`);
+  const set = (doc: Y.Doc) => {
+    try { doc.getMap<unknown>('signal').set(key, value); } catch (err) { console.error(`[collab] signal ${key} failed: ${(err as Error).message}`); }
+  };
+  if (branch !== '*') {
+    const doc = hocuspocus.documents.get(docName(projectId, branch, FILES_SIGNAL)) as Y.Doc | undefined;
+    if (doc) set(doc);
+    return;
+  }
+  hocuspocus.documents.forEach((doc: Y.Doc, name: string) => {
+    const parsed = parseDocName(name);
+    if (parsed && parsed.projectId === projectId && parsed.filePath === FILES_SIGNAL) set(doc);
+  });
+}
+
+const docLoadHooks: DocLoadHook[] = [];
+
+/** Galley: `fn` runs in onLoadDocument for every project file's doc, after
+ *  its snapshot (or its seed text) is in and before any client sees it;
+ *  returns its removal. A hook may tidy side maps (in a transaction with a
+ *  server origin) but never the text, which must stay what the file holds.
+ *  If any hook changed the doc its snapshot is written again. A hook that
+ *  throws is logged and the load goes on. */
+export function registerDocLoadHook(fn: DocLoadHook): () => void {
+  docLoadHooks.push(fn);
+  let removed = false;
+  return () => {
+    if (removed) return;
+    removed = true;
+    const i = docLoadHooks.indexOf(fn);
+    if (i >= 0) docLoadHooks.splice(i, 1);
+  };
+}
+
+function runDocLoadHooks(name: string, document: Y.Doc): void {
+  if (!docLoadHooks.length) return;
+  let changed = false;
+  const onUpdate = () => { changed = true; };
+  document.on('update', onUpdate);
+  try {
+    for (const fn of [...docLoadHooks]) {
+      try { fn(document, name); } catch (err) { console.error(`[collab] a document load hook failed on ${name}: ${(err as Error).message}`); }
+    }
+  } finally {
+    document.off('update', onUpdate);
+  }
+  if (changed) writeSnapshot(name, document);
+}
+
+/** Client updates that touched no text (a highlight, an agent mark): onChange
+ *  records no edit for them, so the project's "last edited" stays put. Keyed
+ *  by the update bytes Hocuspocus hands onChange, the same array the doc's
+ *  'update' event carried; onChange runs on a later microtask. */
+const sideMapUpdates = new WeakSet<Uint8Array>();
+
+function watchTextChanges(document: Y.Doc): void {
+  const text = document.getText(TEXT_KEY) as unknown as Y.AbstractType<Y.YEvent<any>>;
+  document.on('update', (update: Uint8Array, _origin: unknown, _doc: Y.Doc, tr: Y.Transaction) => {
+    if (!tr.changed.has(text)) sideMapUpdates.add(update);
+  });
 }

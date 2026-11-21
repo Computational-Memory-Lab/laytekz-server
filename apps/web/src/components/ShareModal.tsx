@@ -6,7 +6,10 @@ import { useAuth } from './Auth';
 import Modal from './Modal';
 import { useDialogs } from './Dialogs';
 import { addedEntries, invitationStatus, inviteSummary, isOrcidEntry, type InviteReport, type OwnerInvitation } from '../util/invites';
-import { outputSibling, type OutputFile } from '../util/outputFiles';
+import { downloadName, type OutputFile } from '../util/outputFiles';
+// Galley: V2 (WP34) the output list and the arXiv ZIP come from features/outputs.
+import { loadGenerated, requestArxivDownload } from '../features/outputs/api';
+import { outputHref } from '../features/outputs/generated';
 import { PRODUCT_NAME } from '../product'; // Galley: the product's own name
 
 /** Mirrors the server's collaborator filter (the share route) so an address it
@@ -45,9 +48,23 @@ export default function ShareModal({ project, canManage = true, downloads, onClo
   const toast = useToast();
   const dialogs = useDialogs();
   const shareUrl = `${location.origin}${withBase(`/p/${project.id}`)}`;
-  const fileStem = (project.name || 'document').replace(/[\\/:*?"<>|]/g, '-');
-  const outputs = useOutputFiles(downloads?.pdfUrl ?? null);
+  // Galley: V2 (WP34) downloads are named after the project, through one helper.
+  const pdfName = downloadName(project.name, 'pdf');
+  const outputs = useOutputFiles(project.id, downloads?.branch ?? null, downloads?.pdfUrl ?? null);
   const bbl = outputs.find((f) => f.name.endsWith('.bbl'));
+  const [arxivBusy, setArxivBusy] = useState(false);
+  const downloadArxiv = async () => {
+    if (!downloads || arxivBusy) return;
+    setArxivBusy(true);
+    try {
+      await requestArxivDownload({
+        projectId: project.id, branch: downloads.branch, projectName: project.name, confirm: dialogs.confirm,
+        toast: (text, kind, action) => toast(text, kind, action && { label: action.label, onClick: action.run }),
+      });
+    } finally {
+      setArxivBusy(false);
+    }
+  };
 
   // Accepting adds people to the list while the page that opened this
   // dialog still holds the old one: start from the server's.
@@ -269,16 +286,18 @@ export default function ShareModal({ project, canManage = true, downloads, onClo
             <div className="menu__label share__label">Download</div>
             <div className="share__buttons">
               {downloads.pdfUrl ? (
-                <a className="btn" href={downloads.pdfUrl} download={`${fileStem}.pdf`} title="Download the compiled PDF" data-testid="download-pdf">PDF</a>
+                <a className="btn" href={downloads.pdfUrl} download={pdfName} title="Download the compiled PDF" data-testid="download-pdf">PDF</a>
               ) : (
                 <button className="btn" disabled title="Typeset the document first" data-testid="download-pdf">PDF</button>
               )}
               <a className="btn" href={api.archiveUrl(project.id, downloads.branch)} download data-testid="download-zip">Source as ZIP</a>
+              {/* Galley: V2 (WP34) the ZIP arXiv accepts, in place of V1's "arXiv also needs main.bbl" hint */}
+              <button className="btn" onClick={() => void downloadArxiv()} disabled={arxivBusy} title="A ZIP arXiv accepts: the source with the .bbl the last typeset wrote, without hidden files" data-testid="download-arxiv">{arxivBusy ? 'Preparing…' : 'For arXiv'}</button>
               {outputs.map((f) => (
                 <a key={f.name} className="btn" href={f.url} download={f.name} title={f === bbl ? 'Download the bibliography the last typeset wrote' : 'Download the log of the last typeset'} data-testid={`download-${f.name.slice(f.name.lastIndexOf('.') + 1)}`}>{f.name}</a>
               ))}
             </div>
-            <p className="settings__hint">The ZIP holds every file on {downloads.branch}; it imports back into {PRODUCT_NAME}, or into Overleaf.{bbl && ` arXiv also needs ${bbl.name}, which the ZIP leaves out.`}</p>
+            <p className="settings__hint">The ZIP holds every file on {downloads.branch}; it imports back into {PRODUCT_NAME}, or into Overleaf. “For arXiv” adds {bbl ? bbl.name : 'the .bbl'} from the last typeset, which the source ZIP leaves out.</p>
           </section>
         )}
 
@@ -300,20 +319,23 @@ export default function ShareModal({ project, canManage = true, downloads, onClo
 }
 
 /** The .bbl and the .log the typeset of `pdfUrl` wrote beside it, those
- *  that are there: a document without a bibliography has no .bbl. */
-function useOutputFiles(pdfUrl: string | null): OutputFile[] {
+ *  that are there: a document without a bibliography has no .bbl.
+ *  Galley: V2 (WP34) read from the output list (features/outputs), which
+ *  probes beside the PDF as V1 did when the server has no list route. */
+function useOutputFiles(projectId: string, branch: string | null, pdfUrl: string | null): OutputFile[] {
   const [found, setFound] = useState<OutputFile[]>([]);
   useEffect(() => {
-    if (!pdfUrl) return;
+    if (!pdfUrl || !branch) return;
     let live = true;
-    const files = ['.bbl', '.log'].map((ext) => outputSibling(pdfUrl, ext)).filter((f): f is OutputFile => f != null);
-    const exists = (f: OutputFile) => fetch(f.url.replace('/output?', '/output/exists?'))
-      .then((r) => (r.ok ? r.json() : null), () => null)
-      .then((b: { exists?: boolean } | null) => !!b?.exists);
-    void Promise.all(files.map(exists))
-      .then((ok) => { if (live) setFound(files.filter((_, i) => ok[i])); });
+    loadGenerated({ projectId, branch, pdfUrl })
+      .then((list) => {
+        if (!live) return;
+        const wanted = list.files.filter((f) => /\.(bbl|log)$/i.test(f.name) && f.fromLastRun !== false);
+        setFound(wanted.map((f) => ({ name: f.name, url: withBase(outputHref(projectId, branch, list.dir ?? '.aldine-out', f.name)) })));
+      })
+      .catch(() => { if (live) setFound([]); });
     return () => { live = false; };
-  }, [pdfUrl]);
+  }, [projectId, branch, pdfUrl]);
   return pdfUrl ? found : [];
 }
 

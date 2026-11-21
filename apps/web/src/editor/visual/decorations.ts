@@ -1,5 +1,6 @@
 import { EditorState, Range, RangeSetBuilder } from '@codemirror/state';
 import { Decoration, DecorationSet, WidgetType } from '@codemirror/view';
+import type { EditorView } from '@codemirror/view'; // Galley: the caption placeholder (WP18)
 import { syntaxTree } from '@codemirror/language';
 import type { SyntaxNode } from '@lezer/common';
 import { RevealRange, headingLineTail, intersectsReveal, itemMarkerEnd, labelsOnlyTail, revealsWithin } from './reveal';
@@ -25,7 +26,7 @@ const STYLE_CLASS: Record<string, string> = {
   TextSmallCapsCommand: 'cm-vis-sc',
 };
 
-const MATH_NODES = ['DollarMath', 'BracketMath', 'ParenMath', 'EquationEnvironment', 'EquationArrayEnvironment'];
+export const MATH_NODES = ['DollarMath', 'BracketMath', 'ParenMath', 'EquationEnvironment', 'EquationArrayEnvironment']; // Galley: V2 typing core exports it (WP08)
 
 /**
  * Every node the walk below decorates, plus the containers whose extent its
@@ -212,6 +213,28 @@ export function chipCaret(state: EditorState, at: number): number {
 const itemLine = Decoration.line({ class: 'cm-vis-li' });
 const captionMark = Decoration.mark({ class: 'cm-vis-cap' });
 
+/** Galley: the placeholder of an empty \caption{} (WP18). Rendering only: a press puts the caret inside the braces, which shows the source. */
+class CaptionPlaceholderWidget extends WidgetType {
+  eq(): boolean { return true; }
+  toDOM(view: EditorView): HTMLElement {
+    const el = document.createElement('span');
+    el.className = 'cm-vis-cap cm-vis-cap--empty';
+    el.textContent = 'Add a caption';
+    el.style.color = 'var(--text-3)';
+    el.style.cursor = 'text';
+    el.setAttribute('data-testid', 'vis-caption-placeholder');
+    el.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      view.dispatch({ selection: { anchor: view.posAtDOM(el) }, scrollIntoView: true });
+      view.focus();
+    });
+    return el;
+  }
+  ignoreEvent(): boolean { return true; }
+}
+const captionPlaceholder = Decoration.replace({ widget: new CaptionPlaceholderWidget() });
+
 /**
  * Single tree walk over [from,to] emitting visual decorations. Whitelist-only:
  * anything not positively matched (unknown commands, ⚠ errors, unclosed
@@ -274,7 +297,8 @@ export function walk(state: EditorState, reveals: readonly RevealRange[], from: 
         const parts = wrapperParts(n.node, 'TextArgument');
         if (!parts) return;
         emit.atomic(n.from, parts.openEnd, hide);
-        emit.atomic(parts.closeFrom, parts.closeTo, hide);
+        // Galley: an empty caption shows "Add a caption" over its closing brace, so it can be clicked (WP18).
+        emit.atomic(parts.closeFrom, parts.closeTo, parts.openEnd < parts.closeFrom ? hide : captionPlaceholder);
         if (parts.openEnd < parts.closeFrom) emit.mark(parts.openEnd, parts.closeFrom, captionMark);
         return;
       }

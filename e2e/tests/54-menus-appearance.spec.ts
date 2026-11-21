@@ -14,8 +14,8 @@ test.describe('appearance', () => {
   test('Match system follows the operating system, before and after first paint', async ({ page }) => {
     await page.emulateMedia({ colorScheme: 'light' });
     await page.goto('/');
-    // nothing stored: dark, whatever the system says
-    expect(await themeOf(page)).toBe('dark');
+    // Galley: nothing stored is Match system (V1's default): a light system gives light
+    expect(await themeOf(page)).toBe('light');
 
     // no accounts here: Appearance lives in the "…" menu
     const toggle = page.getByTestId('home-more');
@@ -24,7 +24,13 @@ test.describe('appearance', () => {
     await page.getByTestId('appearance').click();
     const menu = page.getByTestId('appearance-menu');
     await expect(menu).toBeVisible();
-    await expect(menu.getByRole('menuitemradio', { name: 'Dark' })).toHaveAttribute('aria-checked', 'true');
+    await expect(menu.getByRole('menuitemradio', { name: 'Match system' })).toHaveAttribute('aria-checked', 'true');
+    // Galley: away from the default and back, so the choice is stored
+    await menu.getByRole('menuitemradio', { name: 'Dark' }).click();
+    await expect(menu).toHaveCount(0);
+    await expect.poll(() => themeOf(page)).toBe('dark');
+    await toggle.click();
+    await page.getByTestId('appearance').click();
     await menu.getByRole('menuitemradio', { name: 'Match system' }).click();
     await expect(menu).toHaveCount(0);
     await expect(toggle).toBeFocused();
@@ -57,12 +63,15 @@ test.describe('appearance', () => {
       await page.getByTestId('palette-open').click();
       await page.keyboard.type('theme');
       await expect(page.getByTestId('palette-item-appearance-system')).toBeVisible();
-      await expect(page.getByTestId('palette-item-appearance-dark')).toContainText('Current');
+      // Galley: Match system is the default (V1's choice)
+      await expect(page.getByTestId('palette-item-appearance-system')).toContainText('Current');
       await page.keyboard.press('Escape');
 
       await page.getByTestId('project-settings-open').click();
       const select = page.getByTestId('settings-theme');
       await expect(select.locator('option')).toHaveText(['Match system', 'Light', 'Dark']);
+      await select.selectOption('dark');
+      await expect.poll(() => page.evaluate(() => localStorage.getItem('aldine.theme'))).toBe('dark');
       await select.selectOption('system');
       await expect.poll(() => page.evaluate(() => localStorage.getItem('aldine.theme'))).toBe('system');
     } finally { await cleanup(request, id); }
@@ -78,22 +87,26 @@ test.describe('menu', () => {
     const menu = page.getByRole('menu', { name: 'More' });
     await expect(menu).toBeVisible();
     const item = (name: string) => menu.getByRole('menuitem', { name });
+    // Galley: V2's Settings… is the first item, above Appearance
+    await expect(item('Settings…')).toBeFocused();
+    await page.keyboard.press('ArrowDown');
     await expect(item('Appearance')).toBeFocused();
     await page.keyboard.press('ArrowDown');
     await expect(item('Connect Claude or ChatGPT…')).toBeFocused();
     await page.keyboard.press('End');
     await expect(item('About & source')).toBeFocused();
     await page.keyboard.press('ArrowDown');
-    await expect(item('Appearance')).toBeFocused();
+    await expect(item('Settings…')).toBeFocused();
     await page.keyboard.press('ArrowUp');
     await expect(item('About & source')).toBeFocused();
     await page.keyboard.press('Home');
-    await expect(item('Appearance')).toBeFocused();
+    await expect(item('Settings…')).toBeFocused();
     await page.keyboard.press('c');
     await expect(item('Connect Claude or ChatGPT…')).toBeFocused();
     // opened from the keyboard: no entrance animation
     expect(await menu.evaluate((el) => el.getAnimations().length)).toBe(0);
     await page.keyboard.press('Home');
+    await page.keyboard.press('ArrowDown');
     await page.keyboard.press('ArrowRight');
     const sub = page.getByRole('menu', { name: 'Appearance' });
     await expect(sub.getByRole('menuitemradio', { name: 'Match system' })).toBeFocused();
@@ -103,7 +116,7 @@ test.describe('menu', () => {
     await page.keyboard.press('Escape');
     await expect(menu).toHaveCount(0);
     await expect(toggle).toBeFocused();
-    expect(await themeOf(page)).toBe('dark');
+    expect(await themeOf(page)).toBe('light'); // Galley: Match system on Playwright's light system
 
     // ArrowUp on the button opens on the last item; Tab closes and moves on
     await page.keyboard.press('ArrowUp');
@@ -128,7 +141,7 @@ test.describe('menu', () => {
     await expect.poll(() => page.evaluate(() => (window as unknown as { spacePrevented?: boolean }).spacePrevented)).toBe(true);
     await expect(menu).toBeVisible();
     await page.keyboard.press('ArrowDown');
-    await expect(menu.getByRole('menuitem', { name: 'Appearance' })).toBeFocused();
+    await expect(menu.getByRole('menuitem', { name: 'Settings…' })).toBeFocused(); // Galley: V2's first item
     await page.mouse.click(5, 400);
     await expect(menu).toHaveCount(0);
   });

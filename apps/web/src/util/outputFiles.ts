@@ -26,3 +26,38 @@ export function outputSibling(pdfUrl: string, ext: string): OutputFile | null {
   u.searchParams.delete('t');
   return { name: sibling.slice(sibling.lastIndexOf('/') + 1), url: u.pathname + u.search };
 }
+
+/** Windows refuses these as file names, with or without an extension. */
+const DEVICE_NAME = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])$/i;
+
+/**
+ * Galley: V2 (WP34) the name a download gets, after the project: `My paper.pdf`,
+ * `My paper (arXiv).zip`. Characters no file system takes become `-`, control
+ * characters go, trailing dots and spaces go (Windows drops them), a Windows
+ * device name gains a `_`, and an empty name is `document`. Files inside an
+ * archive keep their TeX names (`main.bbl` must match `main.tex`); only the
+ * download itself is named after the project.
+ */
+export function downloadName(projectName: string | null | undefined, ext: string): string {
+  let stem = (projectName ?? '')
+    .replace(/[\\/:*?"<>|]/g, '-')
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .replace(/[. ]+$/, '');
+  if (!stem.trim()) stem = 'document';
+  if (DEVICE_NAME.test(stem)) stem = `${stem}_`;
+  const suffix = ext.replace(/^\.+/, '');
+  return suffix ? `${stem}.${suffix}` : stem;
+}
+
+/**
+ * Galley: V2 (WP34) the folder the typeset of `pdfUrl` wrote into, as the
+ * output route names it (`paper/.aldine-out`), or null when the link names no
+ * file. The generated files are its direct children.
+ */
+export function outputDirOf(url: string): string | null {
+  const path = parse(url).searchParams.get('path');
+  if (!path) return null;
+  const slash = path.lastIndexOf('/');
+  return slash < 0 ? '' : path.slice(0, slash);
+}

@@ -19,6 +19,26 @@ const GITLAB = Number(process.env.E2E_GITLAB_PORT || 4921);
 const GITEA = Number(process.env.E2E_GITEA_PORT || 4923);
 const BASE = process.env.ALDINE_URL || `http://localhost:${PORT}`;
 
+/**
+ * Galley: the V2 upstreams, frozen by WP01 (docs/galley-v2/README.md). The
+ * server reads none of them until a V2 package does. The Mendeley client is
+ * a test value that turns the provider on against the mock;
+ * ALDINE_INSTANCE_PET names a plain grey test shape (WP39 adds the file).
+ */
+const V2_MOCK_ENV = [
+  `CROSSREF_API_BASE=http://localhost:${MOCK}/crossref`,
+  `DATACITE_API_BASE=http://localhost:${MOCK}/datacite`,
+  `PUBMED_API_BASE=http://localhost:${MOCK}/pubmed`,
+  `OPENLIBRARY_API_BASE=http://localhost:${MOCK}/openlibrary`,
+  `S2_API_BASE=http://localhost:${MOCK}/s2`,
+  `MENDELEY_API_BASE=http://localhost:${MOCK}/mendeley`,
+  `MENDELEY_OAUTH_BASE=http://localhost:${MOCK}/mendeley/oauth`,
+  'MENDELEY_CLIENT_ID=e2e-mendeley',
+  'MENDELEY_CLIENT_SECRET=e2e-mendeley-secret',
+  `ZOTERO_OAUTH_BASE=http://localhost:${MOCK}/zotero-oauth`,
+  'ALDINE_INSTANCE_PET=$(pwd)/e2e/fixtures/operator/pet-test.png',
+].join(' ');
+
 export default defineConfig({
   testDir: './tests',
   // 34 needs the provisioning stack (service token, mock GitLab on its own port); playwright.provisioning.config.ts runs it.
@@ -73,7 +93,9 @@ export default defineConfig({
       // RL_MCP_BURST: the MCP specs make tens of calls a second from one IP
       // and one token; at the default 60-burst/1 s bucket 15-mcp drains it and
       // 16-agent-ui opens on 429s.
-      command: `npm run build -w apps/web && npm run build:viewer -w apps/server && PORT=${PORT} DATA_DIR=$(pwd)/.data-e2e META_DIR=$(pwd)/.secrets-e2e ALDINE_MCP=1 ALDINE_MCP_TOKEN=aldine-e2e-mcp RL_MCP_BURST=1000 ALDINE_AGENT_PRESENCE_TTL_MS=5000 ALDINE_TEST_HOOKS=1 REMOTE_STATUS_TTL_MS=1000 GITLAB_API_BASE=http://localhost:${GITLAB} GITEA_API_BASE=http://localhost:${GITEA} VENUES_FILE=$(pwd)/.data-e2e/venues-e2e.json TEMPLATE_REPOS='[{"id":"lab","label":"Lab templates","url":"file://'"$(pwd)"'/.data-e2e/template-repo.git"}]' TEMPLATE_REPOS_REFRESH_MS=60000 OPENROUTER_API_KEY= OPENAI_API_KEY= ZOTERO_API_BASE=http://localhost:${MOCK} DOI_API_BASE=http://localhost:${MOCK} ARXIV_API_BASE=http://localhost:${MOCK} OPENALEX_API_BASE=http://localhost:${MOCK} ANTHROPIC_API_KEY=test-ai-key ANTHROPIC_BASE_URL=http://localhost:${MOCK} npx tsx apps/server/src/index.ts`,
+      // Galley: V2_MOCK_ENV names the V2 upstreams; each points at its own path
+      // prefix on the mock, served by tests/mocks/*.mjs.
+      command: `npm run build -w apps/web && npm run build:viewer -w apps/server && PORT=${PORT} DATA_DIR=$(pwd)/.data-e2e META_DIR=$(pwd)/.secrets-e2e ALDINE_MCP=1 ALDINE_MCP_TOKEN=aldine-e2e-mcp RL_MCP_BURST=1000 ALDINE_AGENT_PRESENCE_TTL_MS=5000 ALDINE_TEST_HOOKS=1 REMOTE_STATUS_TTL_MS=1000 GITLAB_API_BASE=http://localhost:${GITLAB} GITEA_API_BASE=http://localhost:${GITEA} VENUES_FILE=$(pwd)/.data-e2e/venues-e2e.json TEMPLATE_REPOS='[{"id":"lab","label":"Lab templates","url":"file://'"$(pwd)"'/.data-e2e/template-repo.git"}]' TEMPLATE_REPOS_REFRESH_MS=60000 OPENROUTER_API_KEY= OPENAI_API_KEY= ZOTERO_API_BASE=http://localhost:${MOCK} DOI_API_BASE=http://localhost:${MOCK} ARXIV_API_BASE=http://localhost:${MOCK} OPENALEX_API_BASE=http://localhost:${MOCK} ANTHROPIC_API_KEY=test-ai-key ANTHROPIC_BASE_URL=http://localhost:${MOCK} ${V2_MOCK_ENV} npx tsx apps/server/src/index.ts`,
       cwd: '..',
       port: PORT,
       reuseExistingServer: true,

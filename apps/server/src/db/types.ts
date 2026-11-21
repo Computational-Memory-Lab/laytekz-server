@@ -120,6 +120,10 @@ export interface ProjectMeta {
    * a project over on its next write. Removed once no stored meta carries it.
    */
   github?: Omit<RemoteLink, 'provider'>;
+  /** Galley: V2 project settings, keyed by setting id and validated by the
+   *  server features' ProjectSettingDefs (features/types.ts). Never a secret:
+   *  a V1 server reading this meta would hand `ext` to clients unfiltered. */
+  ext?: Record<string, unknown>;
 }
 
 export interface RemoteLink {

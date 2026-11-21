@@ -7,8 +7,10 @@ export const KEEP_FILE = '.gitkeep';
 
 /** What the Source view lists: LaTeX sources (Sweave and Asymptote ones
  *  too), a journal kit's class options, configs and language files, the
- *  images and plot data they read, notes, and latexmk's settings. */
-export const SOURCE_FILE = /\.(tex|ltx|latex|rnw|rtex|bib|cls|clo|cfg|def|ldf|lbx|bbx|cbx|sty|bst|ist|mtx|asy|png|jpe?g|pdf|eps|svg|tikz|pgf|csv|tsv|dat|txt|md)$|^\.latexmkrc$/i;
+ *  images and plot data they read, notes, and latexmk's settings.
+ *  Galley: V2 (WP34) and a project's own .bbl: arXiv sources ship one in
+ *  place of the .bib, and "Add to project" puts the typeset's there. */
+export const SOURCE_FILE = /\.(tex|ltx|latex|rnw|rtex|bib|bbl|cls|clo|cfg|def|ldf|lbx|bbx|cbx|sty|bst|ist|mtx|asy|png|jpe?g|pdf|eps|svg|tikz|pgf|csv|tsv|dat|txt|md)$|^\.latexmkrc$/i;
 
 const isDotName = (name: string) => name.startsWith('.');
 

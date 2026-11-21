@@ -4,7 +4,8 @@ import { config } from './config.js';
 import { branchDir, readMeta, writeMeta } from './store.js';
 import { detectRoot } from './root.js';
 import { ensureWorktree } from './gitops.js';
-import { flushBranchDocs, signalAgentTypeset, signalTypesetFinished } from './collab.js';
+// Galley: V2 math PDF crop (WP21) the flush hashes each open doc's text in the same pass.
+import { flushBranchDocsHashed, signalAgentTypeset, signalTypesetFinished } from './collab.js';
 import { noteCompile } from './activity.js';
 import { compilerHeaders, invalidRootFile, rootFileRenameMessage } from './util.js';
 
@@ -54,6 +55,11 @@ export interface CompileResult {
    *  hit, miss (being built), fallback (the format failed, the plain run
    *  stood in), bad, or off. Absent from compilers that predate it. */
   preambleCache?: string;
+  /** Galley: V2 math PDF crop (WP21). Project path → first 16 hex digits of
+   *  SHA-256 of the LF text of every file open in an editor when this run
+   *  flushed, read in that same pass. Present only when pdfUrl serves this
+   *  run's own output, so a client can prove its text is what was typeset. */
+  sources?: Record<string, string>;
 }
 
 /** The engine's "Output written on x.pdf (N pages, …)" line — the last one
@@ -73,6 +79,26 @@ export function outputPdfRel(rootFile: string): string {
   const dir = path.posix.dirname(rootFile || 'main.tex');
   const base = path.posix.basename(rootFile || 'main.tex').replace(/\.tex$/i, '');
   return path.posix.join(dir === '.' ? '' : dir, '.aldine-out', `${base}.pdf`);
+}
+
+/** Galley: V2 build outputs (WP30). The project setting that turns the
+ *  glossary, acronym and nomenclature rules off (default on); the compiler
+ *  then gets buildAux: false. Defined by features/outputs/server.ts. */
+export const BUILD_AUX_SETTING = 'outputs.buildAux';
+
+/**
+ * Galley: V2 build outputs (WP30). `meta.rootFile` is one setting for every
+ * branch, so renaming or deleting the main document on one branch would stop
+ * every other branch from typesetting. When the file is not on `branch`, the
+ * root the branch would pick (detectRoot), never saved, and the warning row
+ * that says so; null when the root is there, or no other root is.
+ */
+export function rootFallback(projectId: string, branch: string, rootFile: string): { root: string; message: string } | null {
+  if (!rootFile) return null;
+  try { if (fs.statSync(path.join(branchDir(projectId, branch), rootFile)).isFile()) return null; } catch { /* not on this branch */ }
+  const root = detectRoot(projectId, branch);
+  if (!root || root === rootFile) return null;
+  return { root, message: `The main document ${rootFile} isn’t on this branch, so Laytekz typeset ${root} instead.` };
 }
 
 /**
@@ -209,6 +235,24 @@ const lastGoodPdfUrl = new Map<string, { url: string; compileId: number; pdf: st
 
 /** compileId of the run whose SyncTeX file is on disk, per project::branch. */
 const lastSynctexId = new Map<string, number>();
+
+// Galley: V2 math PDF crop (WP21) which file that run's SyncTeX is, read only
+// together with lastSynctexId (an entry left behind is overwritten on the next set).
+const lastSynctexPath = new Map<string, string>();
+
+/** Galley: V2 math PDF crop (WP21). The compileId of the run whose SyncTeX
+ *  file is on disk, and that file (relative to the branch directory), or null. */
+export function synctexRunId(projectId: string, branch: string): { id: number; path: string } | null {
+  const key = `${projectId}::${branch}`;
+  const id = lastSynctexId.get(key);
+  const file = lastSynctexPath.get(key);
+  return id === undefined || !file ? null : { id, path: file };
+}
+
+/** Galley: V2 math PDF crop (WP21). Where latexmk writes the SyncTeX file for rootFile: "paper/main.tex" → "paper/.aldine-out/main.synctex.gz". */
+export function outputSynctexRel(rootFile: string): string {
+  return outputPdfRel(rootFile).replace(/\.pdf$/, '.synctex.gz');
+}
 
 /** The last run this node finished per project::branch, and how many are in
  *  flight — what compileStatus reports so a client can adopt a typeset it did
@@ -421,7 +465,7 @@ function timedOutRow(message: string): CompileError {
 async function runCompileInner(projectId: string, branch: string, agent: boolean, draft: boolean, clean: boolean, request: number, deadline: Deadline = null): Promise<CompileResult> {
   const meta = await readMeta(projectId);
   await ensureWorktree(projectId, branch);
-  flushBranchDocs(projectId, branch);
+  const sources = flushBranchDocsHashed(projectId, branch); // Galley: V2 math PDF crop (WP21) the hashes of what this run typesets
   // After the flush, never before: the signal tells clients this run already
   // contains every edit they have seen, which is what makes them cancel their
   // own pending typeset.
@@ -435,6 +479,9 @@ async function runCompileInner(projectId: string, branch: string, agent: boolean
     meta.rootFile = root;
     await writeMeta(meta);
   }
+  // Galley: V2 build outputs (WP30) the main document is one setting for every branch; a branch without that file typesets the one it would pick, for this run only.
+  const fallback = rootFallback(projectId, branch, meta.rootFile);
+  if (fallback) meta.rootFile = fallback.root;
   // Galley: latexmk hands the main document's name to a shell. A stored name
   // that breaks the rules (a project from before them, a file renamed through
   // git or a pull) is refused with what to rename, before any typeset runs.
@@ -454,6 +501,7 @@ async function runCompileInner(projectId: string, branch: string, agent: boolean
     haltOnError: !!meta.stopOnFirstError,
     ...(draft ? { draft: true } : {}),
     ...(clean ? { clean: true } : {}),
+    ...(meta.ext?.[BUILD_AUX_SETTING] === false ? { buildAux: false } : {}), // Galley: V2 build outputs (WP30) the project's switch for glossary rules
     // Galley: the compiler stops on its own when the budget is spent.
     ...(deadline ? { timeoutMs: Math.max(1, left - ANSWER_GRACE_MS) } : {}),
   };
@@ -495,6 +543,7 @@ async function runCompileInner(projectId: string, branch: string, agent: boolean
     ...(raw.draft ? { draft: true, needsFullRun: !!raw.needsFullRun } : {}),
     ...(typeof raw.preambleCache === 'string' ? { preambleCache: raw.preambleCache } : {}),
   };
+  if (fallback) body.errors.unshift({ type: 'warning', line: null, message: fallback.message }); // Galley: V2 build outputs (WP30)
   const key = `${projectId}::${branch}`;
   const compileId = nextCompileId();
   const runId = compileId;
@@ -504,7 +553,7 @@ async function runCompileInner(projectId: string, branch: string, agent: boolean
   // run's file can pass as this run's.
   const pdfFresh = (raw.pdfFresh ?? body.ok) && !(!body.ok && /no output PDF file produced|No pages of output/i.test(body.log));
   const synctexFresh = raw.synctexFresh ?? body.ok;
-  if (synctexFresh && body.synctex) lastSynctexId.set(key, compileId);
+  if (synctexFresh && body.synctex) { lastSynctexId.set(key, compileId); lastSynctexPath.set(key, body.synctex); } // Galley: V2 math PDF crop (WP21) with its file
   // A run that wrote a PDF is shown even when it logged errors: TeX ran to the
   // end, so the document is complete and the errors sit in the list beside
   // it. With stopOnFirstError the PDF on disk is truncated at the first error,
@@ -527,7 +576,8 @@ async function runCompileInner(projectId: string, branch: string, agent: boolean
     const writtenAt = mtime();
     lastGoodPdfUrl.set(key, { url, compileId: id, pdf: body.pdf!, writtenAt });
     const pages = pagesFromLog(body.log);
-    return { ...body, pdfUrl: url, compileId: id, runId, ...(pages !== null ? { pages } : {}), ...(writtenAt !== undefined ? { pdfWrittenAt: writtenAt } : {}) };
+    // Galley: V2 math PDF crop (WP21) the PDF shown is this run's output (fresh, or unchanged because the text was), so the hashes describe it.
+    return { ...body, pdfUrl: url, compileId: id, runId, sources, ...(pages !== null ? { pages } : {}), ...(writtenAt !== undefined ? { pdfWrittenAt: writtenAt } : {}) };
   };
   const cutShort = !!meta.stopOnFirstError || !!body.timedOut || !!body.stopped;
   if (body.pdf && pdfFresh && (body.ok || !cutShort)) return shown(mintUrl(compileId), compileId);
@@ -537,7 +587,7 @@ async function runCompileInner(projectId: string, branch: string, agent: boolean
   // calling it stale would flag every typeset of an unchanged document.
   if (body.ok && body.pdf) {
     const id = previous?.compileId ?? compileId;
-    if (!lastSynctexId.has(key) && body.synctex) lastSynctexId.set(key, id);
+    if (!lastSynctexId.has(key) && body.synctex) { lastSynctexId.set(key, id); lastSynctexPath.set(key, body.synctex); } // Galley: V2 math PDF crop (WP21) with its file
     return shown(previous?.url ?? mintUrl(id), id);
   }
   // No PDF from this run: whatever a client shows is the last successful
@@ -579,7 +629,7 @@ export async function synctexLookup(projectId: string, branch: string, payload: 
   const { direction, file, line, column, page, x, y } = rest;
   return compilerPost('/synctex', {
     projectDir: relProjectDir(projectId, branch),
-    rootFile: meta.rootFile,
+    rootFile: rootFallback(projectId, branch, meta.rootFile)?.root ?? meta.rootFile, // Galley: V2 build outputs (WP30) the root this branch typesets
     direction, file, line, column, page, x, y,
   });
 }

@@ -5,6 +5,8 @@ import { latexCompletions } from 'codemirror-lang-latex';
 import { api, type TreeEntry } from '../api';
 import { preambleMacros } from './visual/preamble';
 import { afterLineBreak, applyCommand } from './latexExtras';
+// Galley: V2 (WP12) a path completion keeps the brace after it tracked, so typing } steps over it.
+import { closerAt, trackClosers } from './core/brackets';
 
 /**
  * Everyday commands codemirror-lang-latex does not list, with the number of
@@ -91,7 +93,8 @@ export function relativePath(from: string, to: string): string {
   return [...a.slice(i).map(() => '..'), ...b.slice(i)].join('/');
 }
 
-interface PathRule {
+// Galley: V2 (WP12) exported with PATH_RULES for later packages.
+export interface PathRule {
   /** The files it takes; null: any text file. */
   accept: RegExp | null;
   /** An extension the command adds itself, left out of the path. */
@@ -102,7 +105,7 @@ interface PathRule {
   notSelf?: boolean;
 }
 
-const PATH_RULES: Record<string, PathRule> = {
+export const PATH_RULES: Record<string, PathRule> = { // Galley: V2 (WP12) exported
   includegraphics: { accept: /\.(pdf|png|jpe?g|eps)$/i },
   includepdf: { accept: /\.pdf$/i },
   input: { accept: /\.(tex|tikz|pgf)$/i, notSelf: true },
@@ -140,9 +143,13 @@ export function pathCandidates(command: string, files: TreeEntry[], rootFile: st
 function applyPath(list: boolean) {
   return (view: EditorView, completion: Completion, from: number, to: number): void => {
     const hop = !list && view.state.sliceDoc(to, to + 1) === '}';
+    // Galley: V2 (WP12) a list's closing brace stays tracked after the path (no-op without the pairs feature).
+    const end = from + completion.label.length;
+    const keep = !hop && view.state.sliceDoc(to, to + 1) === '}' && !closerAt(view.state, to);
     view.dispatch({
       changes: { from, to, insert: completion.label },
-      selection: { anchor: from + completion.label.length + (hop ? 1 : 0) },
+      selection: { anchor: end + (hop ? 1 : 0) },
+      ...(keep ? { effects: trackClosers.of([{ from: end, to: end + 1, text: '}' }]) } : {}),
       userEvent: 'input.complete',
     });
   };
@@ -200,7 +207,8 @@ const docMacros = new WeakMap<Text, PaperMacro[]>();
 export const isDocument = (text: string) => /^[^%\n]*\\documentclass\b/m.test(text);
 
 /** The project's .tex and .sty files as last read, each read again once it has changed. */
-async function readSources(projectId: string, branch: string) {
+// Galley: V2 (WP12) exported for later packages.
+export async function readSources(projectId: string, branch: string) {
   const project = filesOf(projectId, branch);
   if (!project) return [];
   const sources = project.files
@@ -221,6 +229,21 @@ async function readSources(projectId: string, branch: string) {
     return read;
   }));
   return sources.map((f) => ({ path: f.path, info: fileMacros.get(`${project.key}::${f.path}`) }));
+}
+
+// Galley: V2 (WP12) the macro names read so far, without waiting for a read (for synchronous callers).
+/** The names (no backslash) of the macros the project's files define, as last read; the open
+ *  document's own are added when `doc` is given. Empty until a completion or `readSources` has read the files. */
+export function macroNamesNow(projectId: string, branch: string, doc?: Text): string[] {
+  const prefix = `${projectId}::${branch}::`;
+  const names = new Set<string>();
+  for (const [key, info] of fileMacros) if (key.startsWith(prefix)) for (const m of info.macros) names.add(m.name);
+  if (doc) {
+    let here = docMacros.get(doc);
+    if (!here) docMacros.set(doc, (here = macrosIn(doc.toString())));
+    for (const m of here) names.add(m.name);
+  }
+  return [...names].sort();
 }
 
 async function projectMacros(projectId: string, branch: string): Promise<Array<PaperMacro & { file: string }>> {

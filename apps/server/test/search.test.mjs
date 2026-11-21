@@ -339,7 +339,7 @@ res = await replace(q.id, { q: 'x', replace: 'y', match: row });
 check(res.statusCode === 200 && res.json().replaced === 1, `a match moved by an insert above still lands (got ${res.body})`);
 eq(disk(q.id, 'a.tex'), 'NEW\nx y y\n', 'on the occurrence clicked, not on the one that moved onto its old offset');
 log = await logOf(q.id);
-check(log[0].author === 'Ada' && log[1].message === 'aldine: autosave', 'the insert was checkpointed apart from the replace');
+check(log[0].author === 'Ada' && log[1].message === 'laytekz: autosave', 'the insert was checkpointed apart from the replace');
 eq(changedLines((await gitops.commitDiff(q.id, log[0].hash)).patch), ['+x y y', '-x y x'], "the person's commit holds the replacement and nothing else");
 res = await replace(q.id, { q: 'x', replace: 'y', match: { path: 'a.tex', text: 'x' } });
 check(res.statusCode === 400 && /^match needs path, text, preview, ordinal, count and alike/.test(res.json().error), `a match without its preview and place is 400 (got ${res.body})`);
@@ -429,7 +429,7 @@ check(res.statusCode === 200 && body.replaced === 2 && body.skipped === 1, `the 
 eq(ctext.toString(), 'color one\ncolourINS two\ncolor three\n', 'the live doc keeps the insert once, the other matches replaced');
 eq(disk(cp.id, 'live.tex'), 'color one\ncolourINS two\ncolor three\n', 'and so does its file');
 log = await logOf(cp.id);
-check(log[0].author === 'Ada' && log[1].message === 'aldine: autosave', `the insert landed in an autosave of its own (got ${JSON.stringify(log.slice(0, 2))})`);
+check(log[0].author === 'Ada' && log[1].message === 'laytekz: autosave', `the insert landed in an autosave of its own (got ${JSON.stringify(log.slice(0, 2))})`);
 eq(changedLines((await gitops.commitDiff(cp.id, log[0].hash)).patch), ['+color one', '+color three', '-colour one', '-colour three'], "the person's commit holds the two replacements and nothing else");
 await cconn.disconnect();
 
@@ -573,7 +573,7 @@ await gitops.autosave(fp.id, 'main');
 log = await logOf(fp.id);
 const statOf = async (c) => (await gitops.commitDiff(fp.id, c.hash)).stat.split('\n').filter((l) => l.includes('|')).map((l) => l.split('|')[0].trim());
 check(log[1].author === 'Claude' && log[1].message === 'Agent: tighten intro' && (await statOf(log[1])).join() === 'agent.tex', `the agent's pending write is still Claude's alone (got ${JSON.stringify(log.slice(0, 2))})`);
-check(log[0].message === 'aldine: autosave' && log[0].author !== 'Claude' && (await statOf(log[0])).join() === 'a.tex', `the replace landed in the autosave, not under Claude (got ${JSON.stringify(log[0])})`);
+check(log[0].message === 'laytekz: autosave' && log[0].author !== 'Claude' && (await statOf(log[0])).join() === 'a.tex', `the replace landed in the autosave, not under Claude (got ${JSON.stringify(log[0])})`);
 
 // ---- manual commits ----
 const mp = await store.createProject('Manual', { 'm.tex': 'colour\n' }, ada.id);

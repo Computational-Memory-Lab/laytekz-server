@@ -1,0 +1,284 @@
+/* The settings page (pages/Settings.tsx), loaded with it. Built on the
+   dialog's .modal panel (components/Modal) and the .settings__row family in
+   app.css; only theme tokens, so both themes and the contrast and motion
+   attributes apply without rules of their own here. */
+
+/* Above the editor and the project list, below dialogs opened from inside it. */
+.modal-backdrop:has(> .settings-page) {
+  z-index: var(--z-settings, 150);
+  align-items: center;
+  padding-top: 0;
+}
+
+.modal.settings-page {
+  width: min(980px, calc(100vw - 48px));
+  max-width: none;
+  height: min(820px, calc(100vh - 48px));
+  height: min(820px, calc(100dvh - 48px));
+  max-height: none;
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The panel takes focus on open so a screen reader announces the dialog; it
+   is not a control, so it draws no ring of its own. */
+.modal.settings-page:focus { outline: none; }
+
+.settings-page__frame {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.settings-page__head {
+  padding: 20px 24px 12px;
+  border-bottom: 1px solid var(--hairline);
+}
+.settings-page__head h2 { margin: 0 0 2px; }
+.settings-page__head .modal__sub { margin: 0; }
+
+.settings-page__body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.settings-page__nav {
+  flex: 0 0 200px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 12px 8px;
+  border-right: 1px solid var(--hairline);
+}
+.settings-page__nav ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
+.settings-page__link {
+  display: block;
+  padding: 6px 10px;
+  border-radius: var(--radius-s);
+  color: var(--text-2);
+  font-size: var(--text-m);
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@media (hover: hover) and (pointer: fine) { .settings-page__link:hover { background: var(--bg-hover); color: var(--text); } }
+.settings-page__link:active { background: var(--bg-active); }
+.settings-page__link.is-current { background: var(--accent-soft); color: var(--text); font-weight: 550; }
+
+/* The one scrolling column; position: relative is what section tops are measured against. */
+.settings-page__content {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 24px 32px;
+}
+
+.settings-page__section { padding-top: 28px; }
+.settings-page__title { margin: 0 0 4px; font-size: var(--text-l); font-weight: 600; }
+.settings-page__group { margin-top: 14px; }
+.settings-page__note { margin: 0 0 4px; }
+.settings-page__actions { display: flex; justify-content: flex-end; margin-top: 10px; }
+
+/* The footer keeps V1's sticky action row look without overlaying the column. */
+.modal .settings-page__foot {
+  position: static;
+  margin: 0;
+  padding: 12px 24px;
+  border-top: 1px solid var(--hairline);
+}
+.modal .settings-page__foot::before { content: none; }
+
+/* A row: label with its scope badge, the hint under it, the control on the right. */
+.settings-row__head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; min-width: 0; }
+.settings-badge {
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  padding: 0 7px;
+  line-height: 1.5;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.settings-row.is-disabled .settings__label { color: var(--text-3); }
+.settings-row--tall { align-items: flex-start; }
+.settings-row.is-target {
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 6px var(--accent-soft);
+  border-radius: var(--radius-s);
+  animation: settings-target 2.4s var(--ease-out) 0.6s forwards;
+}
+@keyframes settings-target { to { background: transparent; box-shadow: 0 0 0 6px transparent; } }
+@media (prefers-reduced-motion: reduce) { .settings-row.is-target { animation: none; } }
+[data-motion="reduce"] .settings-row.is-target { animation: none; }
+
+/* Controls */
+.settings__control:has(> .settings-segmented) { flex: 0 1 auto; min-width: 210px; justify-content: flex-end; }
+.settings-segmented {
+  display: inline-flex;
+  max-width: 100%;
+  padding: 2px;
+  gap: 2px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-m);
+  background: var(--bg-inset);
+}
+.settings-segmented__item {
+  flex: 1 0 auto;
+  padding: 3px 10px;
+  border: 0;
+  border-radius: var(--radius-s);
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--text-s);
+  white-space: nowrap;
+  cursor: pointer;
+}
+@media (hover: hover) and (pointer: fine) { .settings-segmented__item:hover:not(:disabled):not(.is-on) { background: var(--bg-hover); color: var(--text); } }
+.settings-segmented__item.is-on { background: var(--bg-panel-raised); color: var(--text); box-shadow: var(--shadow-card); font-weight: 550; }
+.settings-segmented__item:disabled { cursor: default; opacity: 0.55; }
+
+.settings-slider { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; }
+.settings-slider input[type="range"] { flex: 1; min-width: 0; accent-color: var(--accent-fill); }
+.modal .settings-slider__number { flex: 0 0 56px; width: 56px; text-align: right; font-variant-numeric: tabular-nums; }
+.settings-slider__unit { color: var(--text-3); font-size: var(--text-s); }
+
+.settings-checklist { display: flex; flex-direction: column; gap: 4px; }
+.settings-checklist__item { display: flex; align-items: center; gap: 8px; font-size: var(--text-m); }
+.settings-custom { width: 100%; min-width: 0; }
+
+.settings__control > input[role="switch"] { accent-color: var(--accent-fill); }
+
+/* A phone: the whole screen, the nav as one scrolling line of sections above the column. */
+@media (max-width: 640px) {
+  .modal.settings-page {
+    width: 100%;
+    min-width: 100%;
+    height: 100vh;
+    height: 100dvh;
+    max-height: none;
+    border-radius: 0;
+    padding-bottom: 0;
+  }
+  .settings-page__head { padding: calc(14px + env(safe-area-inset-top)) 16px 10px; }
+  .settings-page__body { flex-direction: column; }
+  .settings-page__nav {
+    flex: none;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 8px 12px;
+    border-right: 0;
+    border-bottom: 1px solid var(--hairline);
+  }
+  .settings-page__nav ul { flex-direction: row; gap: 4px; }
+  .settings-page__link { padding: 6px 12px; border: 1px solid var(--hairline); border-radius: 999px; }
+  .settings-page__content { padding: 0 16px 24px; }
+  .settings__control:has(> .settings-segmented) { justify-content: flex-start; min-width: 0; }
+  .settings-segmented { flex-wrap: wrap; }
+  .modal .settings-page__foot { padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); }
+}
+/* app.css stacks every control under its label at this width; segmented ones too. */
+@media (max-width: 480px) {
+  .settings__control:has(> .settings-segmented) { flex: 1 1 100%; }
+}
+
+/* ---- WP23 settings-complete ---- */
+
+/* Header: title and sync status on one line, then the search. */
+.settings-page__heading { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 4px 16px; }
+.settings-sync { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-size: var(--text-s); color: var(--text-3); }
+.settings-sync__dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-3); flex-shrink: 0; }
+.settings-sync--saved .settings-sync__dot { background: var(--ok-text); }
+.settings-sync--saving .settings-sync__dot { background: var(--accent); }
+.settings-sync--offline .settings-sync__dot,
+.settings-sync--error .settings-sync__dot { background: var(--warn); }
+.settings-sync__retry { margin-left: 4px; }
+.settings-page__search { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
+.modal .settings-search { flex: 1 1 auto; min-width: 0; max-width: 420px; }
+.settings-search__count { font-size: var(--text-s); color: var(--text-3); white-space: nowrap; }
+.settings-search__empty { margin: 28px 0 0; color: var(--text-2); }
+
+/* Row reset: a quiet link beside the scope badge. */
+.settings-row__reset {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+.settings-row__reset:hover { text-decoration: underline; }
+.settings-page__section-foot { display: flex; justify-content: flex-end; margin-top: 8px; }
+
+/* Footer: export, import and reset on the left, Close on the right. */
+.modal .settings-page__foot { justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.settings-page__tools { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* Shortcuts */
+.settings-keys__group { margin-top: 10px; }
+.settings-keys__control { gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.settings-keys__none { color: var(--text-3); }
+.settings-keys__fixed { margin: 4px 0 0; }
+.settings-keys__fixed-row { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; border-bottom: 1px solid var(--hairline); font-size: var(--text-m); }
+.settings-keys__fixed-row dt { color: var(--text-2); }
+.settings-keys__fixed-row dd { margin: 0; white-space: nowrap; }
+
+/* The typography preview reads the editor's own variables (settings/apply.ts). */
+.settings-typography { margin: 14px 0 0; }
+.settings-typography figcaption { display: block; margin-bottom: 6px; }
+.settings-typography__panes { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.settings-typography__source,
+.settings-typography__visual {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-s);
+  background: var(--bg-inset);
+  color: var(--text);
+  overflow-x: auto;
+  min-width: 0;
+}
+.settings-typography__source {
+  font-family: var(--editor-font, var(--font-mono));
+  font-size: var(--editor-font-size, var(--text-code));
+  line-height: var(--editor-line-height, 1.55);
+  white-space: pre;
+}
+:where(:root[data-ligatures="off"]) .settings-typography__source { font-variant-ligatures: none; }
+:where(:root[data-ligatures="on"]) .settings-typography__source { font-variant-ligatures: normal; }
+.settings-typography__cmd { color: var(--syn-command); }
+.settings-typography__math { color: var(--syn-value); }
+.settings-typography__comment { color: var(--syn-comment); }
+.settings-typography__visual {
+  font-family: var(--font-serif);
+  font-size: var(--visual-font-size, 16px);
+  line-height: 1.65;
+  background: var(--bg-panel);
+}
+.settings-typography__visual p { margin: 0; }
+.settings-typography__heading { font-weight: 650; margin-bottom: 4px !important; }
+
+/* Import preview */
+.settings-import__list { list-style: none; margin: 8px 0 12px; padding: 0; max-height: 50vh; overflow-y: auto; }
+.settings-import__list li { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--hairline); font-size: var(--text-m); }
+.settings-import__label { color: var(--text); min-width: 0; }
+.settings-import__values { color: var(--text-2); text-align: right; overflow-wrap: anywhere; }
+
+/* The nav measures its chips from here (the phone's chip line follows the section in view). */
+.settings-page__nav { position: relative; }
+
+@media (max-width: 640px) {
+  .settings-page__link { min-height: 44px; display: flex; align-items: center; }
+  .settings-typography__panes { grid-template-columns: minmax(0, 1fr); }
+  .settings-page__search { margin-top: 8px; }
+  .modal .settings-search { max-width: none; }
+  .settings-page__tools .btn { min-height: 44px; }
+}

@@ -18,13 +18,18 @@ function applyKeyAndHopBrace(view: EditorView, completion: Completion, from: num
 }
 
 /** \cite{…} and \ref{…} up to the caret; group 1 is the argument typed so far. */
-const CITE_RE = /\\[a-zA-Z]*[cC]ite[a-zA-Z]*\*?(?:\[[^\]]*\]){0,2}\{([^}]*)$/;
+// Galley: V2 (WP19) apacite's \cite<see>{ and the later groups of a plural citation (\textcites{a}{b).
+const CITE_RE = /\\(?:[a-zA-Z]*[cC]ite[a-zA-Z]*\*?(?:<[^>\n]*>)?(?:\[[^\]]*\]){0,2}|[a-zA-Z]*cites(?:\([^)]*\)){0,2}(?:\[[^\]]*\]){0,2}(?:\{[^}]*\}(?:\[[^\]]*\]){0,2})+)\{([^}]*)$/;
 const REF_RE = /\\(?:auto|c|C|eq|page|name|v|V)?ref\*?\{([^}]*)$/;
 
 /** Offered with their braces, so each must match CITE_RE or REF_RE once `{` follows. */
 const KEY_COMMANDS = new Set([
   'cite', 'citep', 'citet', 'citealp', 'citeauthor', 'citeyear', 'nocite',
   'parencite', 'textcite', 'autocite', 'footcite', 'fullcite',
+  // Galley: V2 (WP19) starred, capitalised, plural and apacite forms.
+  'citep*', 'citet*', 'Citep', 'Citet', 'citealt', 'citeyearpar', 'Citeauthor',
+  'parencite*', 'Parencite', 'Textcite', 'parencites', 'textcites', 'Autocite',
+  'citeA', 'citeNP',
   'ref', 'eqref', 'cref', 'Cref', 'autoref', 'pageref', 'nameref', 'vref', 'Vref',
 ].map((name) => `\\${name}`));
 
@@ -137,13 +142,14 @@ export const keyBraceGuard: Extension = Prec.high(EditorView.inputHandler.of((vi
 let bibCache: { key: string; entries: BibEntry[]; at: number } | null = null;
 
 /** The cached entries of this project and branch; never another one's. */
-function cachedBib(projectId: string, branch: string): BibEntry[] {
+export function cachedBib(projectId: string, branch: string): BibEntry[] { // Galley: V2 (WP19) exported
   return bibCache?.key === `${projectId}::${branch}` ? bibCache.entries : [];
 }
 
-async function loadBib(projectId: string, branch: string): Promise<BibEntry[]> {
+// Galley: V2 (WP19) exported for the citation picker, which shows the cached entries and refetches (`fresh`).
+export async function loadBib(projectId: string, branch: string, fresh = false): Promise<BibEntry[]> {
   const cacheKey = `${projectId}::${branch}`;
-  if (bibCache && bibCache.key === cacheKey && Date.now() - bibCache.at < 15_000) return bibCache.entries;
+  if (!fresh && bibCache && bibCache.key === cacheKey && Date.now() - bibCache.at < 15_000) return bibCache.entries;
   try {
     const entries = await api.bib(projectId, branch);
     bibCache = { key: cacheKey, entries, at: Date.now() };
@@ -177,7 +183,7 @@ export function citeCompletionSource(projectId: string, branch: string): Complet
     if (!m) return null;
     const segment = m[1];
     const lastComma = segment.lastIndexOf(',');
-    const q = segment.slice(lastComma + 1).trim().toLowerCase();
+    const q = segment.slice(lastComma + 1).trim(); // Galley: V2 (WP19) citeRank folds case and diacritics itself
     const from = ctx.pos - (segment.length - lastComma - 1);
     const entries = await loadBib(projectId, branch);
     const options: Completion[] = entries
@@ -203,20 +209,68 @@ function byline(e: BibEntry): string {
   return [e.authorLabel ? (e.author?.match(/\band\b/i) ? `${e.authorLabel} et al.` : e.authorLabel) : firstAuthor(e.author), e.year].filter(Boolean).join(' ');
 }
 
-/** How well an entry answers the query; 0 is no match. Key prefix, key, author, title, year. */
-function citeRank(e: BibEntry, q: string): number {
-  if (!q) return 1;
-  const key = e.key.toLowerCase();
-  if (key.startsWith(q)) return 5;
-  if (key.includes(q)) return 4;
-  if ((e.author || '').toLowerCase().includes(q)) return 3;
-  if ((e.title || '').toLowerCase().includes(q)) return 2;
-  return (e.year || '').includes(q) ? 1 : 0;
+/* Galley: V2 (WP19) multi-word, case- and diacritic-folded search ("muller 2020"
+   finds M\"uller's 2020 paper), shared by \cite completion and the citation picker. */
+
+/** Lower case, TeX accents and Unicode diacritics removed: `M{\"u}ller` and `Müller` both give `muller`. */
+export function foldText(s: string): string {
+  return s
+    .replace(/\\(?:[`'^"~=.]|[uvHtcdbkr](?=[\s{]))\s*\{?\s*\\?([a-zA-Z])\s*\}?/g, '$1')
+    .replace(/\\(ss|ae|AE|oe|OE|aa|AA|o|O|l|L|i|j)(?![a-zA-Z])\s*/g, '$1')
+    .replace(/[{}\\]/g, '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/ß/g, 'ss').replace(/[øØ]/g, 'o').replace(/[łŁ]/g, 'l').replace(/æ/g, 'ae').replace(/Æ/g, 'AE').replace(/œ/g, 'oe').replace(/Œ/g, 'OE')
+    .toLowerCase();
 }
 
-let labelCache: { key: string; labels: Array<{ label: string; file: string }>; at: number } | null = null;
+/** The family names in a BibTeX name list ("Lamport, Leslie and Knuth, Donald E." gives Lamport, Knuth). */
+export function surnames(names?: string): string[] {
+  if (!names) return [];
+  return names.split(/\s+and\s+/i).map((n) => {
+    const t = n.trim().replace(/^\{(.*)\}$/, '$1');
+    if (t.includes(',')) return t.split(',')[0].trim();
+    const words = t.split(/\s+/);
+    return words[words.length - 1] || t;
+  }).filter((n) => n && n.toLowerCase() !== 'others');
+}
 
-async function loadLabels(projectId: string, branch: string): Promise<Array<{ label: string; file: string }>> {
+/**
+ * How well an entry answers the query; 0 is no match. Every word of the query
+ * must match (AND); each scores key prefix 5, surname prefix 4, year 3 (a
+ * two-digit word matches the year's end), title-word prefix 2, anywhere in
+ * key, names, title or journal 1. Keys in `cited` get a small boost.
+ */
+export function citeRank(e: BibEntry & { editor?: string }, q: string, cited?: ReadonlySet<string>): number {
+  const boost = cited?.has(e.key) ? 0.5 : 0;
+  const words = foldText(q).split(/[\s,;]+/).filter(Boolean);
+  if (!words.length) return 1 + boost;
+  const key = foldText(e.key);
+  const names = foldText([e.author, e.editor].filter(Boolean).join(' and '));
+  const families = surnames(names).flatMap((n) => [n, ...n.split(/[\s-]+/)]);
+  const year = e.year || '';
+  const title = foldText(e.title || '');
+  const titleWords = title.split(/[^\p{L}\p{N}]+/u);
+  const journal = foldText(e.journal || '');
+  let total = 0;
+  for (const w of words) {
+    let s = 0;
+    if (key.startsWith(w)) s = 5;
+    else if (families.some((n) => n.startsWith(w))) s = 4;
+    else if (year && (year === w || (/^\d{2}$/.test(w) && year.endsWith(w)))) s = 3;
+    else if (titleWords.some((t) => t.startsWith(w))) s = 2;
+    else if (key.includes(w) || names.includes(w) || title.includes(w) || journal.includes(w) || year.includes(w)) s = 1;
+    if (!s) return 0;
+    total += s;
+  }
+  return total + boost;
+}
+
+/** Galley: V2 (WP19) the server's label entries carry kind and title (WP15's GET …/labels?detail=1). */
+interface LabelInfo { label: string; file: string; kind?: string; title?: string; envTitle?: string }
+
+let labelCache: { key: string; labels: LabelInfo[]; at: number } | null = null;
+
+async function loadLabels(projectId: string, branch: string): Promise<LabelInfo[]> {
   const cacheKey = `${projectId}::${branch}`;
   if (labelCache && labelCache.key === cacheKey && Date.now() - labelCache.at < 15_000) return labelCache.labels;
   try {
@@ -300,7 +354,10 @@ export function refCompletionSource(projectId: string, branch: string, currentFi
     const before = ctx.state.sliceDoc(line.from, ctx.pos);
     const m = before.match(REF_RE);
     if (!m) return null;
-    const q = m[1].toLowerCase();
+    // Galley: V2 (WP19) \cref{a,| completes the label after the last comma.
+    const typed = m[1].slice(m[1].lastIndexOf(',') + 1);
+    const lead = typed.length - typed.trimStart().length;
+    const q = typed.trim().toLowerCase();
 
     // current-file labels first (instant), then project-wide (cached)
     const local = new Map<string, string>();
@@ -312,19 +369,38 @@ export function refCompletionSource(projectId: string, branch: string, currentFi
 
     const project = await loadLabels(projectId, branch);
     const merged = new Map<string, string>(local);
-    for (const { label, file } of project) if (!merged.has(label)) merged.set(label, file);
+    const info = new Map<string, LabelInfo>();
+    for (const entry of project) {
+      if (!merged.has(entry.label)) merged.set(entry.label, entry.file);
+      if (!info.has(entry.label)) info.set(entry.label, entry);
+    }
 
     const options = Array.from(merged.entries())
       .filter(([l]) => !q || l.toLowerCase().includes(q))
       .slice(0, 100)
       .map(([l, file]) => ({
         label: l,
-        detail: file === cur ? undefined : file,
+        // Galley: V2 (WP19) the label's kind and caption or heading, then its file when it is another one.
+        detail: [labelKindText(info.get(l)), file === cur ? '' : file].filter(Boolean).join(' · ') || undefined,
+        info: info.get(l)?.title || undefined,
         type: 'variable' as const,
         boost: local.has(l) ? 1 : 0,
         apply: applyKeyAndHopBrace,
       }));
     if (!options.length) return null;
-    return { from: ctx.pos - m[1].length, options, validFor: /^[^}]*$/ };
+    return { from: ctx.pos - typed.length + lead, options, validFor: /^[^},]*$/ };
   };
+}
+
+/** Galley: V2 (WP19) a label's kind as the completion detail ("Figure", "Section", "Hypothesis"). */
+const KIND_TEXT: Record<string, string> = {
+  figure: 'Figure', subfigure: 'Figure', table: 'Table', subtable: 'Table', equation: 'Equation', item: 'Item',
+  listing: 'Listing', algorithm: 'Algorithm', footnote: 'Footnote', part: 'Part', chapter: 'Chapter',
+  section: 'Section', subsection: 'Section', subsubsection: 'Section', paragraph: 'Paragraph', subparagraph: 'Paragraph', appendix: 'Appendix',
+};
+
+function labelKindText(l?: LabelInfo): string {
+  if (!l?.kind) return '';
+  if (l.kind === 'theorem') return l.envTitle || 'Theorem';
+  return KIND_TEXT[l.kind] ?? '';
 }

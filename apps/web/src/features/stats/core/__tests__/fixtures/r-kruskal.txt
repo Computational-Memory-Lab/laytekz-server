@@ -1,0 +1,6 @@
+
+	Kruskal-Wallis rank sum test
+
+data:  Ozone by Month
+Kruskal-Wallis chi-squared = 29.267, df = 4, p-value = 6.901e-06
+

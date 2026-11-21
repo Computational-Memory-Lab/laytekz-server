@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useDialogs } from '../components/Dialogs';
+import { BASE_PATH } from '../basePath'; // Galley: V2 settings routes (samePage)
 
 /** The question before leaving a page whose edits are not all on the server. */
 export const LEAVE_UNSAVED = { title: 'Some edits aren’t saved yet. Leave anyway?', confirmLabel: 'Leave', cancelLabel: 'Stay', danger: true };
@@ -10,6 +11,18 @@ export const LEAVE_UNSAVED = { title: 'Some edits aren’t saved yet. Leave anyw
  *  state); null when either is unknown. */
 export function stepsBack(from: unknown, to: unknown): number | null {
   return typeof from === 'number' && typeof to === 'number' && from !== to ? from - to : null;
+}
+
+/** Galley: V2 settings routes. Two locations are one page when they are the
+ *  same project's (/p/<id>, its settings over it, any base path before it),
+ *  or the same path otherwise: moving between them is not leaving. */
+export function samePage(a: string, b: string, base = BASE_PATH): boolean {
+  const project = (p: string) => {
+    const rel = base && p.startsWith(`${base}/`) ? p.slice(base.length) : p;
+    return /^\/p\/([^/]+)(?:\/|$)/.exec(rel)?.[1] ?? null;
+  };
+  const pa = project(a);
+  return pa !== null ? pa === project(b) : a === b;
 }
 
 const historyIdx = () => (window.history.state as { idx?: unknown } | null)?.idx;
@@ -33,7 +46,8 @@ function onPop(e: PopStateEvent) {
   if (undone) { undone(); undone = null; e.stopImmediatePropagation(); return; }
   const w = watch;
   // a move within the page (only the query changes) is not leaving it
-  if (!w || window.location.pathname === w.path || (!asking && !w.pending())) return;
+  // Galley: nor is one between the editor and its settings page (samePage)
+  if (!w || samePage(window.location.pathname, w.path) || (!asking && !w.pending())) return;
   const back = stepsBack(w.idx, historyIdx());
   if (back === null) return;
   e.stopImmediatePropagation();

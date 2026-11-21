@@ -61,7 +61,8 @@ const link = { apiKey: 'k', userId: 7, libraryPrefix: 'users/7', bibFile: 'zoter
 const synced = await syncProject(id, 'main', true, link);
 check(synced.synced === true, `the sync lands the library (got ${JSON.stringify(synced)})`);
 const log = await gitops.log(id, 'main');
-eq(log[0].message, 'aldine: sync Zotero library into zotero.bib', 'the newest commit is the sync');
+// Galley: V2 (WP42) server commits carry the product's name ("laytekz: ").
+eq(log[0].message, 'laytekz: sync Zotero library into zotero.bib', 'the newest commit is the sync');
 eq(log[1].hash, before, 'and it is the only new commit');
 const stat = (await gitops.commitDiff(id, log[0].hash)).stat;
 check(stat.includes('zotero.bib') && !stat.includes('main.tex') && !stat.includes('notes.tex'), `the sync commit holds only zotero.bib (got ${stat})`);

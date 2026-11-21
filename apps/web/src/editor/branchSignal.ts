@@ -60,6 +60,36 @@ export interface BranchSignalHandle {
   bumpFiles(): void;
   /** Whether this client is the branch's elected typesetter right now. */
   electedTypesetter(): boolean;
+  /** Galley: V2 keyed signals. `fn` gets the value each time the server sets
+   *  `key` (collab signalBranch), from the first sync on: the values already
+   *  there when the channel opens are history, not news. Returns the removal. */
+  onSignal(key: string, fn: (value: unknown) => void): () => void;
+}
+
+/** Galley: V2 keyed signals. The listeners of onSignal, by key, and their
+ *  delivery for one change of the signal map; a listener that throws is
+ *  logged and the others still run. Exported for its tests. */
+export function signalListeners() {
+  const byKey = new Map<string, Set<(value: unknown) => void>>();
+  return {
+    on(key: string, fn: (value: unknown) => void): () => void {
+      let set = byKey.get(key);
+      if (!set) { set = new Set(); byKey.set(key, set); }
+      const entry = (value: unknown) => fn(value);
+      set.add(entry);
+      return () => { byKey.get(key)?.delete(entry); };
+    },
+    deliver(keys: Iterable<string>, read: (key: string) => unknown): void {
+      for (const key of keys) {
+        const set = byKey.get(key);
+        if (!set?.size) continue;
+        const value = read(key);
+        for (const fn of [...set]) {
+          try { fn(value); } catch (err) { console.warn(`[laytekz] a '${key}' branch signal listener failed`, err); }
+        }
+      }
+    },
+  };
 }
 
 type SignalKey = 'v' | 'a' | 'ts' | 'td' | 'r' | 'c';
@@ -82,8 +112,13 @@ export function useBranchSignal(
   const providerRef = useRef<HocuspocusProvider | null>(null);
   const bumpRef = useRef<() => void>(() => {});
   const selfPublishRef = useRef<() => void>(() => {});
+  // Galley: V2 keyed signals; the listeners outlive a reconnect (a new provider).
+  const keyedRef = useRef<ReturnType<typeof signalListeners> | null>(null);
+  keyedRef.current ??= signalListeners();
+  const keyed = keyedRef.current;
 
   const handleRef = useRef<BranchSignalHandle>({
+    onSignal: (key, fn) => keyed.on(key, fn),
     bumpFiles: () => bumpRef.current(),
     electedTypesetter: () => {
       const awareness = providerRef.current?.awareness;
@@ -142,6 +177,10 @@ export function useBranchSignal(
       }
     };
     map.observe(observer);
+    // Galley: V2 keyed signals, after the initial sync like the stamps above;
+    // keys changed while disconnected arrive with the resync and count.
+    const keyedObserver = (e: Y.YMapEvent<number>) => { if (ready) keyed.deliver(e.keysChanged, (k) => map.get(k)); };
+    map.observe(keyedObserver);
     bumpRef.current = () => { last.v = Date.now(); map.set('v', last.v); };
 
     const publish = () => {
@@ -194,6 +233,7 @@ export function useBranchSignal(
 
     return () => {
       map.unobserve(observer);
+      map.unobserve(keyedObserver); // Galley: V2 keyed signals
       provider.awareness?.off('change', roster);
       cbRef.current.onRoster?.([]);
       selfPublishRef.current = () => {};

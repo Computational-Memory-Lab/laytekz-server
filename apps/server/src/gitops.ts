@@ -7,6 +7,39 @@ import { projectsDir } from './config.js';
 import { repoDir, branchDir, git, readMeta, removeTree } from './store.js';
 import { spawn } from 'node:child_process';
 import { BRANCH_RE, isHiddenPath } from './util.js';
+// Galley: V2 (WP42): the agent a request speaks for, and the product's name on the server's own commits.
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { PRODUCT_NAME } from './product.js';
+
+/** Galley: V2 (WP42). The commits the server writes for itself carry the
+ *  product's name: committer (and author, when nobody is named) "Laytekz
+ *  <laytekz@localhost>", subjects under "laytekz: ", a named person without an
+ *  email under "…@laytekz.local". Projects made before hold upstream's forms
+ *  ("Aldine", "aldine: ", "…@aldine.local"), so everything that reads history
+ *  recognises both. */
+const PRODUCT_SLUG = PRODUCT_NAME.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'laytekz';
+export const SERVER_COMMIT_NAME = PRODUCT_NAME;
+export const SERVER_COMMIT_EMAIL = `${PRODUCT_SLUG}@localhost`;
+export const SERVER_SUBJECT_PREFIX = `${PRODUCT_SLUG}: `;
+const LEGACY_SUBJECT_PREFIX = 'aldine: ';
+/** Committer names with no person behind them: the product's, then upstream's. */
+export const SERVER_COMMIT_NAMES: readonly string[] = [SERVER_COMMIT_NAME, 'Aldine'];
+export const isServerCommitName = (name: string | null | undefined): boolean => !!name && SERVER_COMMIT_NAMES.includes(name);
+/** A subject under upstream's prefix, written under the product's instead
+ *  (callers outside this file still pass "aldine: autosave"). */
+export function serverSubject(message: string): string {
+  return message.startsWith(LEGACY_SUBJECT_PREFIX) ? SERVER_SUBJECT_PREFIX + message.slice(LEGACY_SUBJECT_PREFIX.length) : message;
+}
+/** The words after either prefix ("autosave"), or null for any other subject. */
+export function serverSubjectRest(subject: string): string | null {
+  for (const p of [SERVER_SUBJECT_PREFIX, LEGACY_SUBJECT_PREFIX]) if (subject.startsWith(p)) return subject.slice(p.length);
+  return null;
+}
+/** `git -c` options naming the server as committer, and as author when no
+ *  --author or GIT_AUTHOR_* says otherwise, over what the repository's config
+ *  says (every project made before holds user.name=Aldine there). */
+const SERVER_IDENTITY = ['-c', `user.name=${SERVER_COMMIT_NAME}`, '-c', `user.email=${SERVER_COMMIT_EMAIL}`];
+const AUTOSAVE_MESSAGE = `${SERVER_SUBJECT_PREFIX}autosave`;
 
 export interface BranchInfo { name: string; current?: boolean; head: string; message: string; date: string }
 
@@ -172,7 +205,8 @@ function byIntent(paths: Map<string, string>): Array<{ message: string; paths: s
   return [...groups].map(([message, ps]) => ({ message, paths: ps }));
 }
 
-const authorEmail = (author: string) => `${author.toLowerCase().replace(/[^a-z0-9]+/g, '.')}@aldine.local`;
+// Galley: V2 (WP42): the product's domain; upstream's …@aldine.local is in older commits.
+const authorEmail = (author: string, domain = `${PRODUCT_SLUG}.local`) => `${author.toLowerCase().replace(/[^a-z0-9]+/g, '.')}@${domain}`;
 
 /** Who a commit is by: a display name, or a name with the account's own
  *  commit email (auth.cleanCommitEmail vetted it). History, session review
@@ -204,7 +238,8 @@ function authorArg(a: CommitAuthor | undefined): string[] {
  * simple-git refuses a supplied env that carries the operator's GIT_EDITOR.
  */
 async function commitArgv(g: ReturnType<typeof git>, message: string, author: CommitAuthor | undefined, paths?: string[]): Promise<string> {
-  const args = ['--literal-pathspecs', 'commit', '-m', message, ...authorArg(author)];
+  // Galley: V2 (WP42): the product's identity and subject prefix.
+  const args = [...SERVER_IDENTITY, '--literal-pathspecs', 'commit', '-m', serverSubject(message), ...authorArg(author)];
   if (paths?.length) args.push('--', ...paths);
   await g.raw(args);
   return (await g.revparse(['HEAD'])).trim();
@@ -343,7 +378,8 @@ export async function commitSnapshotHeld(id: string, branch: string, files: File
     const tree = (await gitPlumb(dir, ['write-tree'], { env })).trim();
     const who = author && authorName(author) ? authorIdent(author) : null;
     const ident: Record<string, string> = who ? { GIT_AUTHOR_NAME: who.name, GIT_AUTHOR_EMAIL: who.email } : {};
-    const hash = (await gitPlumb(dir, ['commit-tree', tree, '-p', head, '-m', message], { env: ident })).trim();
+    // Galley: V2 (WP42): the product's identity and subject prefix.
+    const hash = (await gitPlumb(dir, [...SERVER_IDENTITY, 'commit-tree', tree, '-p', head, '-m', serverSubject(message)], { env: ident })).trim();
     // The worktree's HEAD is the branch ref; the old value guards against a
     // ref that moved underneath (impossible under the repo lock, fatal if not).
     await gitPlumb(dir, ['update-ref', 'HEAD', hash, head]);
@@ -365,13 +401,83 @@ export async function commitSnapshotHeld(id: string, branch: string, files: File
  */
 export async function commitWriteHeld(id: string, branch: string, files: Array<{ path: string; before: string | Buffer | null; after: string }>, message: string, author?: CommitAuthor): Promise<{ committed: boolean; hash?: string; files: string[] }> {
   const typed = files.filter((f) => f.before !== null).map((f) => ({ path: f.path, content: f.before as string | Buffer }));
-  if (typed.length) await commitSnapshotHeld(id, branch, typed, 'aldine: autosave');
+  if (typed.length) await commitSnapshotHeld(id, branch, typed, AUTOSAVE_MESSAGE); // Galley: V2 (WP42)
   return commitSnapshotHeld(id, branch, files.map((f) => ({ path: f.path, content: f.after })), message, author);
 }
 
-/** commitWriteHeld under Claude: the commit pair every agent write makes. */
-export function commitAgentWriteHeld(id: string, branch: string, files: Array<{ path: string; before: string | Buffer | null; after: string }>, message: string): Promise<{ committed: boolean; hash?: string; files: string[] }> {
-  return commitWriteHeld(id, branch, files, message, AGENT_COMMIT_AUTHOR);
+/**
+ * Galley: V2 reference-aware rename. One commit that moves files and folders
+ * and writes new contents, built from HEAD with a private index like
+ * commitSnapshotHeld: each `moves` pair carries every blob HEAD has at or
+ * under `from` to the same place under `to`, mode and blob kept (git shows
+ * the move as a rename), then `writes` set exact contents (a moved file's
+ * edited text is written at its new path). Paths HEAD does not track are left
+ * out (an ignored sibling stays ignored). Nothing to change, nothing
+ * committed. The working tree is not touched; the real index is pointed at
+ * the result so status reads clean. Callers hold the repo lock and have
+ * already moved the files on disk.
+ */
+export async function commitTreeHeld(id: string, branch: string, change: { moves: Array<[string, string]>; writes: FileSnapshot[] }, message: string, author?: CommitAuthor): Promise<{ committed: boolean; hash?: string; files: string[] }> {
+  const dir = await ensureWorktree(id, branch);
+  const head = await gitPlumb(dir, ['rev-parse', '--verify', '--quiet', 'HEAD']).then((h) => h.trim(), () => '');
+  if (!head) return commitAllHeld(id, branch, message, author).then((r) => ({ ...r, files: [] }));
+  const lines: string[] = [];
+  const touched = new Set<string>();
+  const ZERO = '0'.repeat(40);
+  for (const [from, to] of change.moves) {
+    const listed = await gitPlumb(dir, ['--literal-pathspecs', 'ls-tree', '-r', '-z', head, '--', from]);
+    for (const rec of listed.split('\0')) {
+      const m = /^(\d{6}) blob ([0-9a-f]{40})\t(.*)$/s.exec(rec);
+      if (!m) continue;
+      const p = m[3];
+      if (p !== from && !p.startsWith(`${from}/`)) continue;
+      const q = to + p.slice(from.length);
+      lines.push(`0 ${ZERO}\t${p}`, `${m[1]} ${m[2]}\t${q}`);
+      touched.add(p).add(q);
+    }
+  }
+  for (const f of change.writes) {
+    const blob = (await gitPlumb(dir, ['hash-object', '-w', '--stdin', '--path', f.path], { input: f.content })).trim();
+    const prev = await gitPlumb(dir, ['--literal-pathspecs', 'ls-tree', '-z', head, '--', f.path]);
+    const mode = /^(\d{6}) blob/.exec(prev)?.[1] ?? lines.slice().reverse().map((l) => /^(\d{6}) [0-9a-f]{40}\t(.*)$/s.exec(l)).find((m) => m && m[2] === f.path)?.[1] ?? '100644';
+    lines.push(`${mode} ${blob}\t${f.path}`);
+    touched.add(f.path);
+  }
+  if (!lines.length) return { committed: false, files: [] };
+  const input = `${lines.join('\n')}\n`;
+  const index = path.join(os.tmpdir(), `aldine-index-${crypto.randomBytes(8).toString('hex')}`);
+  const env = { GIT_INDEX_FILE: index };
+  try {
+    await gitPlumb(dir, ['read-tree', head], { env });
+    await gitPlumb(dir, ['update-index', '--index-info'], { env, input });
+    const tree = (await gitPlumb(dir, ['write-tree'], { env })).trim();
+    const headTree = (await gitPlumb(dir, ['rev-parse', `${head}^{tree}`])).trim();
+    if (tree === headTree) return { committed: false, files: [] };
+    const who = author && authorName(author) ? authorIdent(author) : null;
+    const ident: Record<string, string> = who ? { GIT_AUTHOR_NAME: who.name, GIT_AUTHOR_EMAIL: who.email } : {};
+    // Galley: V2 (WP42): the product's identity and subject prefix.
+    const hash = (await gitPlumb(dir, [...SERVER_IDENTITY, 'commit-tree', tree, '-p', head, '-F', '-'], { env: ident, input: serverSubject(message) })).trim();
+    await gitPlumb(dir, ['update-ref', 'HEAD', hash, head]);
+    await gitPlumb(dir, ['update-index', '--index-info'], { input });
+    return { committed: true, hash, files: [...touched] };
+  } finally {
+    fs.rmSync(index, { force: true });
+  }
+}
+
+/** Galley: V2 rename undo. The full message of each commit, in the order given; one that does not resolve is ''. */
+export async function commitBodies(id: string, hashes: string[]): Promise<string[]> {
+  if (hashes.some((h) => !/^[0-9a-f]{4,40}$/.test(h))) throw new Error('bad commit hash');
+  const g = git(repoDir(id));
+  const out: string[] = [];
+  for (const h of hashes) out.push(await g.raw(['show', '-s', '--format=%B', h, '--']).catch(() => ''));
+  return out;
+}
+
+/** commitWriteHeld under the agent: the commit pair every agent write makes.
+ *  Galley: V2 (WP42): `agent` defaults to the one the MCP request speaks for. */
+export function commitAgentWriteHeld(id: string, branch: string, files: Array<{ path: string; before: string | Buffer | null; after: string }>, message: string, agent: AgentAuthor = currentAgentAuthor()): Promise<{ committed: boolean; hash?: string; files: string[] }> {
+  return commitWriteHeld(id, branch, files, message, agent);
 }
 
 /**
@@ -398,7 +504,7 @@ export async function checkpointPathsHeld(id: string, branch: string, paths: str
     for (const p of attributed) pending.paths.delete(p);
     if (!pending.paths.size) pendingAttributed.delete(key);
   }
-  if (anonymous.length) await commitPathsHeld(id, branch, anonymous, 'aldine: autosave');
+  if (anonymous.length) await commitPathsHeld(id, branch, anonymous, AUTOSAVE_MESSAGE); // Galley: V2 (WP42)
 }
 
 /** Takes the repo lock; callers already inside withRepoLock use the Held variant. */
@@ -409,7 +515,7 @@ export function checkpointPaths(id: string, branch: string, paths: string[]): Pr
 /** Title an attributed group retries under after its commit failed: the
  *  original subject is the one input the ledger cannot vouch for, and a
  *  subject that fails git twice would block the branch's sweep for good. */
-const RETRY_INTENT = 'aldine: agent edit';
+const RETRY_INTENT = `${SERVER_SUBJECT_PREFIX}agent edit`; // Galley: V2 (WP42)
 
 /** The debounced auto-commit, and the shape of every whole-tree commit a
  *  person triggers (checkpoint, revert, merge, GitHub sync): attributed
@@ -422,7 +528,7 @@ const RETRY_INTENT = 'aldine: agent edit';
  *  are put back (the failed one under RETRY_INTENT) and the sweep is skipped
  *  (sweeping would sign the agent's delta anonymously, or under the person);
  *  the next edit re-arms the debounce. */
-export async function autoCommitHeld(id: string, branch: string, sweepMessage = 'aldine: autosave', sweepAuthor?: CommitAuthor, sweep = true): Promise<{ committed: boolean; hash?: string }> {
+export async function autoCommitHeld(id: string, branch: string, sweepMessage = AUTOSAVE_MESSAGE /* Galley: V2 (WP42) */, sweepAuthor?: CommitAuthor, sweep = true): Promise<{ committed: boolean; hash?: string }> {
   const attributed = takeAttributedPaths(id, branch);
   let last: { committed: boolean; hash?: string } = { committed: false };
   if (attributed) {
@@ -448,7 +554,7 @@ export async function autoCommitHeld(id: string, branch: string, sweepMessage = 
  *  attributed work lands; everything else stays in the working tree for the
  *  person's own commit and message. Unreadable meta falls back to the sweep,
  *  so a broken meta file can never leave edits out of history. */
-export async function autosave(id: string, branch: string, message = 'aldine: autosave'): Promise<{ committed: boolean; hash?: string }> {
+export async function autosave(id: string, branch: string, message = AUTOSAVE_MESSAGE /* Galley: V2 (WP42) */): Promise<{ committed: boolean; hash?: string }> {
   const manual = await readMeta(id).then((m) => m.manualCommits === true, () => false);
   return withRepoLock(id, () => autoCommitHeld(id, branch, message, undefined, !manual));
 }
@@ -463,7 +569,7 @@ export async function uncommittedPaths(id: string, branch: string): Promise<stri
 }
 
 /** Takes the repo lock; callers already inside withRepoLock use the Held variant. */
-export function autoCommit(id: string, branch: string, sweepMessage = 'aldine: autosave', sweepAuthor?: CommitAuthor): Promise<{ committed: boolean; hash?: string }> {
+export function autoCommit(id: string, branch: string, sweepMessage = AUTOSAVE_MESSAGE /* Galley: V2 (WP42) */, sweepAuthor?: CommitAuthor): Promise<{ committed: boolean; hash?: string }> {
   return withRepoLock(id, () => autoCommitHeld(id, branch, sweepMessage, sweepAuthor));
 }
 
@@ -488,7 +594,7 @@ export function checkpoint(id: string, branch: string, message: string, author?:
     const g = git(await ensureWorktree(id, branch));
     const tree = (rev: string) => g.revparse([`${rev}^{tree}`]).then((t) => t.trim());
     if ((await tree(base)) === (await tree(head))) return r;
-    const args = ['commit', '--allow-empty', '-m', message, ...authorArg(author)];
+    const args = [...SERVER_IDENTITY, 'commit', '--allow-empty', '-m', serverSubject(message), ...authorArg(author)]; // Galley: V2 (WP42)
     await g.raw(args);
     return { committed: true, hash: (await g.revparse(['HEAD'])).trim() };
   });
@@ -574,7 +680,7 @@ export async function log(id: string, branch: string, limit = 50, { skip = 0, de
       if (!/^[0-9a-f]{40}$/.test(hash)) continue;
       const lines = f[i + 5].split('\n');
       const files = lines.slice(1).map((l) => l.trim()).filter(Boolean);
-      const onBehalfOf = f[i + 2] === AGENT_COMMIT_AUTHOR ? f[i + 4].trim() : '';
+      const onBehalfOf = isAgentAuthor(f[i + 2]) ? f[i + 4].trim() : ''; // Galley: V2 (WP42): any agent
       out.push({
         hash, date: f[i + 1], author: f[i + 2], message: lines[0] ?? '',
         parents: f[i + 3].split(' ').filter(Boolean).length,
@@ -589,7 +695,7 @@ export async function log(id: string, branch: string, limit = 50, { skip = 0, de
   for (let i = 0; i + 4 < f.length; i += 5) {
     const hash = f[i].trim(); // the newline git prints after each record leads the next hash
     if (!/^[0-9a-f]{40}$/.test(hash)) continue;
-    const onBehalfOf = f[i + 2] === AGENT_COMMIT_AUTHOR ? f[i + 4].trim() : '';
+    const onBehalfOf = isAgentAuthor(f[i + 2]) ? f[i + 4].trim() : ''; // Galley: V2 (WP42): any agent
     out.push({ hash, date: f[i + 1], author: f[i + 2], message: f[i + 3], ...(onBehalfOf ? { onBehalfOf } : {}) });
   }
   return out;
@@ -608,7 +714,27 @@ export async function branchHead(id: string, branch: string): Promise<string> {
  *  session review and this answer all key on it. */
 export const AGENT_COMMIT_AUTHOR = 'Claude';
 
-const AUTOSAVE_SUBJECT = /^aldine: autosave( on shutdown)?$/;
+/** Galley: V2 (WP42). Every agent the server names in history, the default
+ *  first. An MCP request names its agent with `X-Laytekz-Agent` (mcp/server.ts
+ *  checks it against this list); the agent writes made while it runs commit,
+ *  show in presence and count as edits under that name. */
+export const AGENT_AUTHORS = ['Claude', 'Codex'] as const;
+export type AgentAuthor = (typeof AGENT_AUTHORS)[number];
+export const isAgentAuthor = (name: string | null | undefined): name is AgentAuthor => !!name && (AGENT_AUTHORS as readonly string[]).includes(name);
+const agentScope = new AsyncLocalStorage<AgentAuthor>();
+/** Runs `fn` (an MCP request) as `agent`: currentAgentAuthor() answers it there. */
+export function runAsAgent<T>(agent: AgentAuthor, fn: () => T): T {
+  return agentScope.run(agent, fn);
+}
+/** The agent the running MCP request speaks for; Claude outside one. Read it
+ *  where the request writes, never in a timer: a timer keeps the context of
+ *  whichever request armed it. */
+export function currentAgentAuthor(): AgentAuthor {
+  return agentScope.getStore() ?? AGENT_COMMIT_AUTHOR;
+}
+
+// Galley: V2 (WP42): the product's prefix and upstream's.
+const AUTOSAVE_SUBJECT = new RegExp(`^(?:aldine|${PRODUCT_SLUG}): autosave( on shutdown)?$`);
 /** search.ts replaceCommitMessage: commits only the files it changed. */
 const REPLACE_SUBJECT = /^(Replace|Delete) (".*"|\/.*\/) (with ".*" )?in .+$/;
 /** Commits read per `git log` while looking for the baseline. */
@@ -620,7 +746,7 @@ const BASELINE_SCAN_MAX = 20_000;
 /** Whether a commit by `author` titled `subject` can be the diff baseline,
  *  short of what its files say (isRemovalCommit). */
 function mayBeBaseline(author: string | undefined, subject: string): boolean {
-  return !AUTOSAVE_SUBJECT.test(subject) && author !== AGENT_COMMIT_AUTHOR && !REPLACE_SUBJECT.test(subject);
+  return !AUTOSAVE_SUBJECT.test(subject) && !isAgentAuthor(author) /* Galley: V2 (WP42) */ && !REPLACE_SUBJECT.test(subject);
 }
 
 /** The file route's removal commit (`Delete <path>`, `Delete folder <path>`),
@@ -736,7 +862,7 @@ const REQUESTER_LINE = new RegExp(`^${AGENT_REQUESTER_TRAILER}:.*$`, 'gim');
  *  name somebody else. */
 export function agentCommitMessage(intent: string, requester: string | null | undefined): string {
   const who = (requester ?? '').replace(/[\x00-\x1f\x7f]+/g, ' ').trim().slice(0, 200);
-  const text = intent.replace(REQUESTER_LINE, '').replace(/\n{3,}/g, '\n\n').trim() || 'aldine: agent edit';
+  const text = intent.replace(REQUESTER_LINE, '').replace(/\n{3,}/g, '\n\n').trim() || RETRY_INTENT; // Galley: V2 (WP42)
   return who ? `${text}\n\n${AGENT_REQUESTER_TRAILER}: ${who}` : text;
 }
 
@@ -748,7 +874,8 @@ const AGENT_SCAN_LIMIT = 500;
 /** Commits handed back with a hash — the reviewer pays one diff request each. */
 const AGENT_REVIEW_LIMIT = 20;
 
-export interface AgentCommit { hash: string; date: string; message: string; files: string[]; onBehalfOf?: string }
+/** Galley: V2 (WP42): `agent`, the agent the commit is by ("Codex edited 1 file"). */
+export interface AgentCommit { hash: string; date: string; message: string; files: string[]; onBehalfOf?: string; agent?: AgentAuthor }
 export interface AgentActivity {
   since: { head: string; at: string } | null;
   head: string;
@@ -810,12 +937,12 @@ export async function agentActivitySince(id: string, branch: string, mark: { hea
     if (!/^[0-9a-f]{40}$/.test(hash)) continue;
     records++;
     const [date, author, onBehalfOf, rest] = [f[i + 1], f[i + 2], f[i + 3].trim(), f[i + 4]];
-    if (author !== AGENT_COMMIT_AUTHOR) continue;
+    if (!isAgentAuthor(author)) continue; // Galley: V2 (WP42): any agent, named on the commit below
     const lines = rest.split('\n');
     const message = lines[0] ?? '';
     const touched = lines.slice(1).map((l) => l.trim()).filter(Boolean);
     for (const f of touched) files.add(f);
-    if (commits.length < AGENT_REVIEW_LIMIT) commits.push({ hash, date, message, files: touched, ...(onBehalfOf ? { onBehalfOf } : {}) });
+    if (commits.length < AGENT_REVIEW_LIMIT) commits.push({ hash, date, message, files: touched, ...(onBehalfOf ? { onBehalfOf } : {}), agent: author });
     commitCount++;
   }
   return { since: mark, head, commits, commitCount, fileCount: files.size, paths: [...files], truncated: records >= AGENT_SCAN_LIMIT };
@@ -832,7 +959,7 @@ export interface BranchMergeResult extends MergeResult { changed?: boolean }
  *  still waiting on either branch.
  *  `from` must be a local branch; git gets it fully qualified, so it can be
  *  neither an option nor any other revision. */
-export async function merge(id: string, from: string, into: string, author?: CommitAuthor, { keepConflicts = false, checkpoint = 'aldine: checkpoint before merge' }: { keepConflicts?: boolean; checkpoint?: string } = {}): Promise<BranchMergeResult> {
+export async function merge(id: string, from: string, into: string, author?: CommitAuthor, { keepConflicts = false, checkpoint = `${SERVER_SUBJECT_PREFIX}checkpoint before merge` /* Galley: V2 (WP42) */ }: { keepConflicts?: boolean; checkpoint?: string } = {}): Promise<BranchMergeResult> {
   if (!BRANCH_RE.test(from) || from.includes('..')) throw new Error('bad branch name');
   const fromRef = `refs/heads/${from}`;
   return withRepoLock(id, async () => {
@@ -849,7 +976,7 @@ export async function merge(id: string, from: string, into: string, author?: Com
     const tree = () => g.raw(['rev-parse', 'HEAD^{tree}']).then((t) => t.trim(), () => '');
     const before = await tree();
     let mergeErr: unknown = null;
-    try { await g.raw(['merge', '--no-ff', '-m', `Merge ${from} into ${into}`, fromRef]); } catch (e) { mergeErr = e; }
+    try { await g.raw([...SERVER_IDENTITY /* Galley: V2 (WP42) */, 'merge', '--no-ff', '-m', `Merge ${from} into ${into}`, fromRef]); } catch (e) { mergeErr = e; }
     const conflicts = (await g.status()).conflicted;
     if (conflicts.length && keepConflicts) {
       try {
@@ -993,8 +1120,8 @@ export async function cloneRepo(id: string, tokenUrl: string): Promise<{ remoteB
   await scrubbed(() => git(projectsDir).clone(tokenUrl, dir, ['--no-single-branch']));
   const g = git(dir);
   await g.remote(['set-url', 'origin', stripCreds(tokenUrl)]); // never persist the token
-  await g.addConfig('user.name', 'Aldine');
-  await g.addConfig('user.email', 'aldine@localhost');
+  await g.addConfig('user.name', SERVER_COMMIT_NAME); // Galley: V2 (WP42): the product's name
+  await g.addConfig('user.email', SERVER_COMMIT_EMAIL);
   const remoteBranch = (await g.raw(['rev-parse', '--abbrev-ref', 'HEAD'])).trim() || 'main';
   if (remoteBranch !== 'main') await g.raw(['branch', '-m', 'main']);
   ensureOutputExcluded(id); // cloned repos have no Aldine .gitignore; keep compile output out of their history
@@ -1141,7 +1268,10 @@ export async function combineUnpushed(id: string, remoteBranch: string, tokenUrl
       await g.raw(['reset', '--soft', remote]);
       if (same) return { combined, kept, hash: null, forked };
       const me = author && authorName(author) ? authorIdent(author) : null;
-      const others = [...new Set(authors)].filter((a) => !/^Aldine </.test(a) && (!me || a !== `${me.name} <${me.email}>`));
+      // Galley: V2 (WP42): the server under either name, and the person under
+      // either derived address, are no co-authors.
+      const mine = me ? [`${me.name} <${me.email}>`, `${me.name} <${authorEmail(me.name)}>`, `${me.name} <${authorEmail(me.name, 'aldine.local')}>`] : [];
+      const others = [...new Set(authors)].filter((a) => !SERVER_COMMIT_NAMES.some((n) => a.startsWith(`${n} <`)) && !mine.includes(a));
       const trailers = others.length ? `\n\n${others.map((a) => `Co-authored-by: ${a}`).join('\n')}` : '';
       const hash = await commitArgv(g, `${message}${trailers}`, author);
       return { combined, kept, hash, forked };
@@ -1165,7 +1295,7 @@ export async function pullFromRemote(id: string, remoteBranch: string, tokenUrl:
     // simple-git's raw() does NOT reject on a merge conflict, so check for unmerged
     // paths after the merge rather than relying on the command to throw.
     let mergeErr: unknown = null;
-    try { await g.raw(['merge', '--no-edit', 'FETCH_HEAD']); } catch (e) { mergeErr = e; }
+    try { await g.raw([...SERVER_IDENTITY /* Galley: V2 (WP42) */, 'merge', '--no-edit', 'FETCH_HEAD']); } catch (e) { mergeErr = e; }
     const conflicts = (await g.status()).conflicted;
     if (conflicts.length) {
       await g.raw(['merge', '--abort']).catch(() => {});

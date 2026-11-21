@@ -28,6 +28,69 @@ export function katexReady(): boolean {
   return katex !== null;
 }
 
+// Galley: V2 math hover (WP13) waiting for KaTeX, its errors as data, mhchem on demand, upright aliases.
+/** Starts the load if needed; resolves true once KaTeX can render, false when the chunk failed to load. */
+export function katexLoaded(): Promise<boolean> {
+  if (katex) return Promise.resolve(true);
+  ensureKatex();
+  const pending = loading;
+  return pending ? pending.then(() => katex !== null) : Promise.resolve(katex !== null);
+}
+
+let mhchem: Promise<void> | null = null;
+
+/** Loads `katex/contrib/mhchem` (\ce, \pu) once KaTeX is in; formulas drawn before it are drawn again. */
+export function ensureMhchem(): Promise<void> {
+  if (mhchem) return mhchem;
+  mhchem = katexLoaded()
+    .then((ok) => {
+      if (!ok) throw new Error('KaTeX did not load');
+      // @ts-expect-error -- the contrib module ships no type declarations
+      return import('katex/contrib/mhchem');
+    })
+    .then(() => {
+      cache.clear();
+      pokeViews();
+    })
+    .catch(() => { mhchem = null; });
+  return mhchem;
+}
+
+/**
+ * Commands KaTeX lacks that documents use for upright symbols (upgreek's
+ * \upalpha…, unicode-math's \symup, the statistics package's output): drawn
+ * with KaTeX's nearest equivalent. A preamble definition of the same name wins.
+ */
+const UPGREEK = ['alpha', 'beta', 'gamma', 'delta', 'epsilon', 'varepsilon', 'zeta', 'eta', 'theta', 'vartheta', 'iota', 'kappa',
+  'lambda', 'mu', 'nu', 'xi', 'pi', 'varpi', 'rho', 'varrho', 'sigma', 'varsigma', 'tau', 'upsilon', 'phi', 'varphi', 'chi', 'psi', 'omega',
+  'Gamma', 'Delta', 'Theta', 'Lambda', 'Xi', 'Pi', 'Sigma', 'Upsilon', 'Phi', 'Psi', 'Omega'];
+export const UPRIGHT_ALIASES: Readonly<Record<string, string>> = {
+  ...Object.fromEntries(UPGREEK.map((g) => [`\\up${g}`, `\\${g}`])),
+  '\\symup': '\\mathrm{#1}',
+  '\\symrm': '\\mathrm{#1}',
+  '\\symbf': '\\boldsymbol{#1}',
+  '\\symit': '\\mathit{#1}',
+  '\\mathup': '\\mathrm{#1}',
+};
+
+function katexMacrosOf(macros: MacroSet): Record<string, string> {
+  return { ...UPRIGHT_ALIASES, ...Object.fromEntries(Object.entries(macros.defs).map(([name, m]) => [`\\${name}`, m.def])) };
+}
+
+/** Why KaTeX cannot parse `source`, with where (offsets into `source`), or null when it can (or is not loaded yet). */
+export function mathError(source: string, displayMode: boolean, macros: MacroSet = NO_MACROS): { message: string; position: number | null; length: number } | null {
+  if (!katex) return null;
+  try {
+    katex.renderToString(source, { displayMode, throwOnError: true, output: 'mathml', macros: katexMacrosOf(macros) });
+    return null;
+  } catch (err) {
+    const e = err as { rawMessage?: string; message?: string; position?: number; length?: number };
+    const message = (e.rawMessage ?? e.message ?? String(err)).replace(/^KaTeX parse error: /, '');
+    return { message, position: typeof e.position === 'number' ? e.position : null, length: typeof e.length === 'number' ? e.length : 0 };
+  }
+}
+// Galley: end V2 math hover (WP13)
+
 /** What KaTeX draws it cannot typeset in: muted, not an alarm. The widget's title says why. */
 export const UNDRAWN_COLOR = 'var(--text-2)';
 
@@ -68,7 +131,7 @@ export function renderMath(source: string, displayMode: boolean, macros: MacroSe
     const cleaned = source.replace(/\\label\s*\{[^}]*\}/g, '');
     // MathML is what screen readers read; KaTeX hides its HTML copy from them
     // a fresh map each time: KaTeX writes \gdef definitions into the one it gets
-    const katexMacros = Object.fromEntries(Object.entries(macros.defs).map(([name, m]) => [`\\${name}`, m.def]));
+    const katexMacros = katexMacrosOf(macros); // Galley: V2 math hover (WP13) plus the upright aliases
     html = katex.renderToString(cleaned, { displayMode, throwOnError: false, errorColor: UNDRAWN_COLOR, output: 'htmlAndMathml', macros: katexMacros });
   } catch {
     return ''; // signals render failure → widget falls back to raw source

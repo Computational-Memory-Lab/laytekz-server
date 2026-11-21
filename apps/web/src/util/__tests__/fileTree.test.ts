@@ -64,8 +64,9 @@ describe('sourceTree', () => {
     const kept = [
       'results.csv', 'table.tsv', 'curve.dat', 'plot.pgf', 'jour.clo', 'jour.cfg', 'macros.def', 'paper.ltx', 'paper.latex',
       'analysis.Rnw', 'chunk.rtex', 'diagram.asy', 'index.ist', 'font.mtx', 'german.ldf', 'english.lbx', '.latexmkrc', 'notes.txt', 'README.md',
+      'main.bbl', // Galley: V2 (WP34) a project's own .bbl is source (arXiv)
     ];
-    const dropped = ['Makefile', 'ci.yml', 'main.log', 'main.bbl', 'data.zip', 'template.json', '.chktexrc', 'x.latexmkrc.bak'];
+    const dropped = ['Makefile', 'ci.yml', 'main.log', 'main.blg', 'data.zip', 'template.json', '.chktexrc', 'x.latexmkrc.bak'];
     expect(paths(sourceTree(buildTree([...kept, ...dropped].map(file)))).sort()).toEqual([...kept].sort());
   });
 

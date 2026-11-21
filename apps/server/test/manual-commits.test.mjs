@@ -47,7 +47,7 @@ scheduleCommit(p.id, 'main', 'Edit agent.tex', 'Claude', ['agent.tex']);
 await sleep(1200);
 
 let log = await gitops.log(p.id, 'main');
-check(!log.some((c) => c.message === 'aldine: autosave'), 'no autosave commit on a manual-commit project');
+check(!log.some((c) => c.message === 'laytekz: autosave'), 'no autosave commit on a manual-commit project');
 const claude = log.find((c) => c.author === 'Claude');
 check(claude !== undefined && claude.message === 'Edit agent.tex', 'agent work still commits under its own name');
 check(log.length === base + 1, `exactly one new commit, the agent's (got ${log.length - base})`);
@@ -84,7 +84,7 @@ await store.writeMeta(meta);
 store.writeFile(p.id, 'main', 'human.tex', 'typed again\n');
 scheduleCommit(p.id, 'main');
 await sleep(1200);
-check((await gitops.log(p.id, 'main'))[0].message === 'aldine: autosave', 'automatic mode autosaves again');
+check((await gitops.log(p.id, 'main'))[0].message === 'laytekz: autosave', 'automatic mode autosaves again');
 
 // ---- unreadable meta falls back to the sweep ----
 const q = await store.createProject('Broken meta', {});

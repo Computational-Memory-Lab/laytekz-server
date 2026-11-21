@@ -128,7 +128,7 @@ for (const c of log) {
     check(added.every((l) => /^agent-\d+$/.test(l)), `Claude commit ${c.hash.slice(0, 7)} adds only agent lines (got ${JSON.stringify(added)})`);
   } else {
     autosaves++;
-    check(c.message === 'aldine: autosave', `anonymous commit ${c.hash.slice(0, 7)} is an autosave (got "${c.message}")`);
+    check(c.message === 'laytekz: autosave', `anonymous commit ${c.hash.slice(0, 7)} is an autosave (got "${c.message}")`);
     check(added.every((l) => /^human-(other|same)-\d+$/.test(l)), `autosave ${c.hash.slice(0, 7)} adds only human lines (got ${JSON.stringify(added)})`);
   }
   for (const l of added) seen.set(l, (seen.get(l) || 0) + 1);

@@ -14,12 +14,11 @@ import { IconBookmark, IconChevronRight } from './Icons';
 const PAGE = 50;
 /** A reload keeps what is on screen, up to this many entries. */
 const RELOAD_MAX = 200;
-/** The repository's own committer name: an autosave has no person behind it. */
-const NO_PERSON = 'Aldine';
-import { agentName } from '../util/agentReview';
+import { agentName, isAgentAuthor, SERVER_COMMIT_NAMES } from '../util/agentReview'; // Galley: V2 (WP42)
 
-/** The commit's author as History names it: an agent commit says for whom. */
-const authorLabel = (c: LogEntry) => (c.author === 'Claude' ? agentName([c.onBehalfOf]) : c.author);
+/** The commit's author as History names it: an agent commit says which agent and for whom.
+ *  Galley: V2 (WP42): Codex as well as Claude. */
+const authorLabel = (c: LogEntry) => (isAgentAuthor(c.author) ? agentName([c.onBehalfOf], c.author) : c.author);
 
 /** `version` bumps whenever the branch changed elsewhere (the files signal,
  *  a revert, an agent session ending); `live` polls while an agent is present,
@@ -175,7 +174,8 @@ export default function HistoryPanel({ projectId, branch, version = 0, live = fa
     }
   };
 
-  const person = (c: LogEntry) => (c.author && c.author !== NO_PERSON ? authorLabel(c) : '');
+  // Galley: V2 (WP42): the repository's own committer, "Laytekz" now and "Aldine" before, is no person.
+  const person = (c: LogEntry) => (c.author && !SERVER_COMMIT_NAMES.includes(c.author) ? authorLabel(c) : '');
   const span = (from: string, to: string) => {
     if (!sameDay(from, to)) return `${dateTime(from)} – ${dateTime(to)}`;
     return clockTime(from) === clockTime(to) ? dateTime(from) : `${dateTime(from)} – ${clockTime(to)}`;

@@ -1,10 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { PRODUCT_NAME } from './product.js'; // Galley: V2 (WP42)
 import { simpleGit, SimpleGit } from 'simple-git';
 import { projectsDir, worktreesDir } from './config.js';
 import { newId, safeJoin, BRANCH_RE, PROJECT_ID_RE, isTextFile, importPath, isHiddenPath, isHiddenName, latexEscape } from './util.js';
 import { db } from './db/index.js';
 import type { ProjectMeta, ProjectVisit, ProjectOpen, RemoteLink, Invitation } from './db/types.js';
+import { copiedExt } from './features/projectSettings.js'; // Galley: V2 project settings marked copyWithProject
 
 export type { ProjectMeta, ProjectVisit, ProjectOpen, RemoteLink, Invitation } from './db/types.js';
 
@@ -147,7 +149,8 @@ export async function createProject(name: string, files?: Record<string, string 
       fs.writeFileSync(abs, content);
       written.push(norm);
     }
-    fs.writeFileSync(path.join(dir, '.gitignore'), '.aldine-out/\n*.aux\n*.log\n*.out\n*.toc\n*.bbl\n*.bcf\n*.blg\n*.synctex.gz\n*.fls\n*.fdb_latexmk\n*.run.xml\n');
+    // Galley: V2 build outputs (WP30) a seed's own .gitignore (an imported archive's) is kept; the default no longer ignores *.bbl, which an arXiv source needs tracked.
+    if (!written.includes('.gitignore')) fs.writeFileSync(path.join(dir, '.gitignore'), DEFAULT_GITIGNORE);
     await g.add(['-A']);
     await g.commit('Initial commit');
   } catch (err) {
@@ -166,8 +169,10 @@ export async function createProject(name: string, files?: Record<string, string 
 async function initRepo(dir: string): Promise<SimpleGit> {
   const g = git(dir);
   await g.init(['--initial-branch=main']);
-  await g.addConfig('user.name', 'Aldine');
-  await g.addConfig('user.email', 'aldine@localhost');
+  // Galley: V2 (WP42): a new project's first commit carries the product's name
+  // (gitops.SERVER_COMMIT_NAME / SERVER_COMMIT_EMAIL; readers accept the old 'Aldine' too).
+  await g.addConfig('user.name', PRODUCT_NAME);
+  await g.addConfig('user.email', `${PRODUCT_NAME.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'laytekz'}@localhost`);
   return g;
 }
 
@@ -224,6 +229,8 @@ export async function copyProject(source: ProjectMeta, name: string, ownerId?: s
   if (source.stopOnFirstError !== undefined) meta.stopOnFirstError = source.stopOnFirstError;
   if (source.manualCommits !== undefined) meta.manualCommits = source.manualCommits;
   if (ownerId) { meta.ownerId = ownerId; meta.share = { mode: 'private', collaborators: [] }; }
+  const ext = copiedExt(source); // Galley: V2, "Make a copy" keeps the settings marked copyWithProject
+  if (ext) meta.ext = ext;
   await writeMeta(meta);
   return meta;
 }
@@ -376,3 +383,8 @@ const DEFAULT_BIB = `@article{knuth1984,
   pages   = {97--111},
 }
 `;
+
+/** Galley: V2 build outputs (WP30) the .gitignore a new project gets when its
+ *  seed has none. Every typeset writes into .aldine-out (also excluded through
+ *  .git/info/exclude); a .bbl in the project itself is source, for arXiv. */
+export const DEFAULT_GITIGNORE = '.aldine-out/\n*.aux\n*.log\n*.out\n*.toc\n*.bcf\n*.blg\n*.synctex.gz\n*.fls\n*.fdb_latexmk\n*.run.xml\n';

@@ -12,6 +12,27 @@ export interface BibEntry {
   year?: string;
   journal?: string;
   file: string;
+  // Galley: V2 (WP15) fields for the citation picker and link following.
+  /** 1-based line of the entry's `@type{` in the file. */
+  line?: number;
+  editor?: string;
+  /** Identifiers as written, with TeX escapes (\_ \% \& \#) undone. */
+  doi?: string;
+  url?: string;
+  eprint?: string;
+  /** `eprinttype`, else `archiveprefix` (lower case: arxiv, pubmed, …). */
+  eprinttype?: string;
+  pmid?: string;
+  crossref?: string;
+}
+
+/** Galley: V2 (WP15). An identifier field (doi, url, eprint, …) as a link
+ *  reads it: no braces, TeX escapes undone, a \url{…} wrapper dropped. */
+function literal(raw: string | undefined): string | undefined {
+  if (raw === undefined) return undefined;
+  const v = raw.trim().replace(/^\\url\s*\{([\s\S]*)\}$/, '$1')
+    .replace(/\\([_%&#$~])/g, '$1').replace(/[{}]/g, '').replace(/\s+/g, ' ').trim();
+  return v || undefined;
 }
 
 /** First author's label from the RAW (still braced) author field. */
@@ -55,10 +76,12 @@ export function parseBib(source: string, file: string): BibEntry[] {
   const strings = stringMacros(source);
   const re = /@([a-zA-Z]+)\s*\{\s*([^,\s]+)\s*,/g;
   let m: RegExpExecArray | null;
+  let line = 1, counted = 0; // Galley: V2 (WP15) line numbers, counted once through the file
   while ((m = re.exec(source))) {
     const type = m[1].toLowerCase();
     if (type === 'comment' || type === 'preamble' || type === 'string') continue;
     const key = m[2];
+    for (; counted < m.index; counted++) if (source.charCodeAt(counted) === 10) line++; // Galley: V2 (WP15)
     // capture the balanced body of the entry
     let depth = 1;
     let i = re.lastIndex;
@@ -93,6 +116,9 @@ export function parseBib(source: string, file: string): BibEntry[] {
       return raw === undefined ? undefined : clean(raw);
     };
     const rawAuthor = rawField('author');
+    const id = (name: string) => literal(rawField(name)); // Galley: V2 (WP15)
+    const extra: Partial<BibEntry> = { line, editor: field('editor'), doi: id('doi')?.replace(/^(?:https?:\/\/(?:dx\.)?doi\.org\/|doi:\s*)/i, ''), url: id('url'), eprint: id('eprint'), eprinttype: (id('eprinttype') ?? id('archiveprefix'))?.toLowerCase(), pmid: id('pmid'), crossref: id('crossref') }; // Galley: V2 (WP15)
+    for (const k of Object.keys(extra) as (keyof BibEntry)[]) if (extra[k] === undefined) delete extra[k]; // Galley: absent fields stay absent, as V1's replies
     entries.push({
       key,
       type,
@@ -102,6 +128,7 @@ export function parseBib(source: string, file: string): BibEntry[] {
       title: field('title'),
       year: field('year') || (field('date') || '').slice(0, 4) || undefined,
       journal: field('journal') || field('journaltitle') || field('booktitle'),
+      ...extra, // Galley: V2 (WP15)
     });
   }
   return entries;
@@ -134,7 +161,9 @@ const COMMAND = /\\([a-zA-Z]+)\s*|\\([^a-zA-Z])/g;
 const OPEN = '', CLOSE = '';
 
 /** BibTeX field text as it prints, for display only. Commands go before
- *  braces: {\TeX}book must not become \TeXbook, one unknown command. */
+ *  braces: {\TeX}book must not become \TeXbook, one unknown command.
+ *  Galley: V2 (WP15) exported as `texText` for label titles (srv/labels.ts). */
+export { clean as texText };
 function clean(s: string): string {
   return s
     .replace(/\\\{/g, OPEN).replace(/\\\}/g, CLOSE)

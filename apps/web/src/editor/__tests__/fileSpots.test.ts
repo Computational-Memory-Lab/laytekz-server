@@ -73,4 +73,31 @@ describe('the spot a file was left at', () => {
     store.flush();
     expect(makeSpotStore(makeSafeStore(() => storage)).get('a')?.anchor).toBe(6);
   });
+
+  // Galley: V2 rename (WP29)
+  it('moves with a renamed file, and with the files of a renamed folder', () => {
+    const { storage } = backing();
+    const store = makeSpotStore(makeSafeStore(() => storage));
+    store.set('p::main::paper.tex', { anchor: 7, head: 7, top: 0, margin: 0 });
+    store.set('p::main::ch/one.tex', { anchor: 1, head: 1, top: 0, margin: 0 });
+    store.set('p::main::ch/two.tex', { anchor: 2, head: 2, top: 0, margin: 0 });
+    store.set('p::main::chapter.tex', { anchor: 3, head: 3, top: 0, margin: 0 });
+    store.rename('p::main::paper.tex', 'p::main::thesis.tex');
+    store.rename('p::main::ch', 'p::main::parts');
+    const next = makeSpotStore(makeSafeStore(() => storage));
+    expect(next.get('p::main::thesis.tex')?.anchor).toBe(7);
+    expect(next.get('p::main::paper.tex')).toBeNull();
+    expect([next.get('p::main::parts/one.tex')?.anchor, next.get('p::main::parts/two.tex')?.anchor]).toEqual([1, 2]);
+    expect(next.get('p::main::ch/one.tex')).toBeNull();
+    expect(next.get('p::main::chapter.tex')?.anchor, 'a name that only starts the same stays').toBe(3);
+  });
+
+  it('keeps a spot already stored at the new name', () => {
+    const store = makeSpotStore(makeSafeStore(() => backing().storage));
+    store.set('old', { anchor: 1, head: 1, top: 0, margin: 0 });
+    store.set('new', { anchor: 9, head: 9, top: 0, margin: 0 });
+    store.rename('old', 'new');
+    expect(store.get('new')?.anchor).toBe(9);
+    expect(store.get('old')).toBeNull();
+  });
 });

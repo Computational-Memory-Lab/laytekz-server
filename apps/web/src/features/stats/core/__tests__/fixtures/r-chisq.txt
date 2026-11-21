@@ -1,0 +1,6 @@
+
+	Pearson's Chi-squared test with Yates' continuity correction
+
+data:  tab
+X-squared = 4.1912, df = 1, p-value = 0.04063
+

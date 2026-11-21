@@ -81,11 +81,11 @@ const NOFOLLOW = fs.constants.O_NOFOLLOW ?? 0;
  *  (docView). `cost`: what reading it took (bytes from disk, units of a live
  *  doc), counted against the scan budget whether or not it turned out to be
  *  text. */
-type Current = { text: string | null; open: boolean; cost: number; raw?: string; crlf?: boolean } | 'large';
+export type Current = { text: string | null; open: boolean; cost: number; raw?: string; crlf?: boolean } | 'large'; // Galley: exported for the V2 rename (rename.ts)
 
 /** The disk copy, never through a symlink. A binary file costs the 8 KB its
  *  sniff read, not its whole length. */
-function diskText(projectId: string, branch: string, rel: string): Current {
+export function diskText(projectId: string, branch: string, rel: string): Current { // Galley: exported for the V2 rename
   let fd: number;
   try { fd = fs.openSync(safeJoin(store.branchDir(projectId, branch), rel), fs.constants.O_RDONLY | NOFOLLOW); } catch { return { text: null, open: false, cost: 0 }; }
   try {
@@ -108,7 +108,7 @@ function diskText(projectId: string, branch: string, rel: string): Current {
 
 /** The file's current text: the live document when one is open (disk lags
  *  it by up to 8 s), else the disk copy. Never flushes. */
-function currentText(projectId: string, branch: string, rel: string): Current {
+export function currentText(projectId: string, branch: string, rel: string): Current { // Galley: exported for the V2 rename
   const live = openDocContent(projectId, branch, rel);
   if (live === null) return diskText(projectId, branch, rel);
   if (live.length > SEARCH_LIMITS.fileBytes) return 'large';
@@ -280,7 +280,7 @@ function matchTarget(m: ReplaceBody['match']): { path: string; target: MatchTarg
 }
 
 /** `edits` ascending and disjoint. */
-function splice(text: string, edits: Array<{ from: number; to: number; insert: string }>): string {
+export function splice(text: string, edits: Array<{ from: number; to: number; insert: string }>): string { // Galley: exported for the V2 rename
   let out = '';
   let at = 0;
   for (const e of edits) { out += text.slice(at, e.from) + e.insert; at = e.to; }
@@ -288,7 +288,7 @@ function splice(text: string, edits: Array<{ from: number; to: number; insert: s
 }
 
 /** A closed file's new text, never through a symlink. */
-function writeDisk(projectId: string, branch: string, rel: string, text: string): void {
+export function writeDisk(projectId: string, branch: string, rel: string, text: string): void { // Galley: exported for the V2 rename
   const fd = fs.openSync(safeJoin(store.branchDir(projectId, branch), rel), fs.constants.O_WRONLY | fs.constants.O_TRUNC | NOFOLLOW);
   try { fs.writeFileSync(fd, text); } finally { fs.closeSync(fd); }
 }

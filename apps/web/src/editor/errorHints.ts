@@ -1,4 +1,5 @@
 /** Plain-English hints for the most common LaTeX errors. */
+import { CATALOGUE, entryByTrigger } from '../features/stats/core/catalogue'; // Galley: V2 statistics (WP38)
 
 /** pdfLaTeX's error for a character its input encoding cannot typeset (a Greek letter, ≤). */
 const UNICODE_CHAR = /Unicode character (\S+) \(U\+[0-9A-F]+\)/i;
@@ -24,7 +25,20 @@ const HINTS: Array<{ re: RegExp; hint: string }> = [
   { re: /Emergency stop/i, hint: 'TeX gave up — fix the first error above; the rest usually follow from it.' },
 ];
 
+// Galley: V2 statistics (WP38) a statistics trigger left in the source is not a LaTeX command.
+/** The catalogue trigger an "Undefined control sequence. — \bayes" names (TeX stops a control word at a digit). */
+function statsTriggerIn(message: string): string | null {
+  const m = /^Undefined control sequence\.?\s+—\s+\\([A-Za-z]+)(\d*)/.exec(message);
+  if (!m) return null;
+  const exact = entryByTrigger(`\\${m[1]}${m[2]}`);
+  if (exact) return exact.trigger;
+  const withDigits = CATALOGUE.find((e) => e.trigger && new RegExp(`^\\\\${m[1]}\\d+$`).test(e.trigger));
+  return withDigits?.trigger ?? null;
+}
+
 export function hintFor(message: string): string | null {
+  const trigger = statsTriggerIn(message); // Galley: V2 statistics (WP38)
+  if (trigger) return `${trigger} is a Laytekz statistic, not a LaTeX command: put the caret right after it in the editor and press Tab to insert it.`;
   for (const { re, hint } of HINTS) {
     const m = re.exec(message);
     if (m) return hint.replace(/\$(\d)/g, (_, i) => m[Number(i)] ?? '');

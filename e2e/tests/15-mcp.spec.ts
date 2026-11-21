@@ -270,11 +270,11 @@ test.describe('MCP connector (static-token mode)', () => {
       }
 
       // both typed lines reached history as anonymous autosaves, before the edit that followed them
-      const autosaves = log.filter((c) => c.message === 'aldine: autosave');
+      const autosaves = log.filter((c) => c.message === 'laytekz: autosave');
       const autosavePatches = await Promise.all(autosaves.map((c) => patchOf(c.hash)));
       expect(autosavePatches.some((p) => /^\+.*HUMAN-TYPED-LINE/m.test(p))).toBe(true);
       expect(autosavePatches.some((p) => /^\+.*TYPED-BETWEEN-EDITS/m.test(p))).toBe(true);
-      expect(log.findIndex((c) => c.message === 'Edit the opening line')).toBeLessThan(log.findIndex((c) => c.message === 'aldine: autosave'));
+      expect(log.findIndex((c) => c.message === 'Edit the opening line')).toBeLessThan(log.findIndex((c) => c.message === 'laytekz: autosave'));
       // and the editor still shows everything
       await expect(page.locator('.cm-content')).toContainText('TYPED-BETWEEN-EDITS');
       await expect(page.locator('.cm-content')).toContainText('Edited opening line.');
@@ -329,7 +329,7 @@ test.describe('MCP connector (static-token mode)', () => {
       let human: { hash: string; author: string; message: string } | undefined;
       await expect.poll(async () => {
         log = await (await request.get(`/api/projects/${id}/log?branch=main`)).json();
-        for (const c of log.filter((x) => x.message === 'aldine: autosave')) {
+        for (const c of log.filter((x) => x.message === 'laytekz: autosave')) {
           if (/^\+.*HUMAN-TYPED-LINE/m.test(await patchOf(c.hash))) { human = c; return true; }
         }
         return false;

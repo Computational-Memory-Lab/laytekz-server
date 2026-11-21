@@ -1,6 +1,12 @@
-import { useSyncExternalStore } from 'react';
 import { isMac } from '../platform';
-import { safeStorage } from './safeStorage';
+// Galley: V2 (WP04) moved the shortcut machinery to keys/registry.ts (every
+// binding, core and feature, with RESERVED and the settings store behind the
+// overrides) and keys/chords.ts (the pure chord helpers). This file keeps
+// every V1 export, with V1 semantics, by delegating there.
+import { CORE_KEYBINDINGS, chordConflict as bindingConflict, chordFor as bindingChord, chordProblem as bindingProblem, isOverridden, matchesShortcut as bindingMatches, setChord as setBindingChord, useChordLabel } from '../keys/registry';
+import { chordFromEvent, formatChord, matchesChord, sameChord } from '../keys/chords';
+
+export { chordFromEvent, formatChord, matchesChord, sameChord };
 
 /**
  * A key chord. `mod` is ⌘ on a Mac and Ctrl (or the Windows key) elsewhere.
@@ -14,26 +20,13 @@ export interface Chord { mod: boolean; shift: boolean; alt: boolean; key: string
 
 export type ShortcutId = 'typeset' | 'comment' | 'jump' | 'palette' | 'search';
 
-export const SHORTCUTS: readonly { id: ShortcutId; label: string; chord: Chord }[] = [
-  { id: 'typeset', label: 'Typeset', chord: { mod: true, shift: false, alt: false, key: 's' } },
-  // Shift, not Alt: Ctrl+Alt is AltGr on German Windows keyboards.
-  // Galley: ⇧⌘C / Ctrl+Shift+C, the owner's choice (upstream used M).
-  { id: 'comment', label: 'Comment on the selection', chord: { mod: true, shift: true, alt: false, key: 'c' } },
-  { id: 'jump', label: 'Jump the PDF to the cursor', chord: { mod: true, shift: false, alt: false, key: 'j' } },
-  { id: 'palette', label: 'Command palette', chord: { mod: true, shift: false, alt: false, key: 'k' } },
-  { id: 'search', label: 'Search the project', chord: { mod: true, shift: true, alt: false, key: 'f' } },
-];
+const SHORTCUT_IDS: readonly ShortcutId[] = ['typeset', 'comment', 'jump', 'palette', 'search'];
 
-/** What the browser keeps for itself, or the editor already does, under a chord. */
-const TAKEN: Record<string, string> = {
-  'mod+w': 'the browser', 'mod+t': 'the browser', 'mod+n': 'the browser', 'mod+q': 'the browser', 'mod+r': 'the browser',
-  'mod+shift+w': 'the browser', 'mod+shift+t': 'the browser', 'mod+shift+n': 'the browser', 'mod+shift+r': 'the browser',
-  'mod+z': 'Undo', 'mod+shift+z': 'Redo', 'mod+y': 'Redo',
-  'mod+c': 'Copy', 'mod+x': 'Cut', 'mod+v': 'Paste', 'mod+a': 'Select all',
-  'mod+f': 'Find', 'mod+g': 'Find next', 'mod+shift+g': 'Find previous', 'mod+d': 'Select next match',
-  'mod+b': 'Bold', 'mod+i': 'Italic', 'mod+/': 'Comment out lines',
-  'mod+[': 'Outdent', 'mod+]': 'Indent', 'mod+shift+k': 'Delete line',
-};
+// Galley: ⇧⌘C / Ctrl+Shift+C for comment, the owner's choice (upstream used M); the defaults live in keys/registry.ts.
+export const SHORTCUTS: readonly { id: ShortcutId; label: string; chord: Chord }[] = SHORTCUT_IDS.map((id) => {
+  const def = CORE_KEYBINDINGS.find((d) => d.id === id)!;
+  return { id, label: def.label, chord: def.default! };
+});
 
 /**
  * Typeset's second keys, Overleaf's: not one of the changeable chords, so a
@@ -53,132 +46,39 @@ export function isFindKey(e: KeyboardEvent, mac = isMac): boolean {
   return matchesChord(e, { mod: true, shift: false, alt: false, key: 'f' }, mac);
 }
 
-const STORE = 'aldine.shortcuts';
-const MODIFIER_KEYS = new Set(['Meta', 'Control', 'Shift', 'Alt', 'AltGraph', 'CapsLock', 'Fn', 'FnLock', 'OS', 'Hyper', 'Super']);
-
 const defaultChord = (id: ShortcutId): Chord => SHORTCUTS.find((s) => s.id === id)!.chord;
 
-function isChord(v: unknown): v is Chord {
-  const c = v as Chord;
-  return !!c && typeof c === 'object' && typeof c.mod === 'boolean' && typeof c.shift === 'boolean'
-    && typeof c.alt === 'boolean' && typeof c.key === 'string' && c.key.length > 0
-    && (c.code === undefined || typeof c.code === 'string');
-}
-
-function read(): Partial<Record<ShortcutId, Chord>> {
-  const raw = safeStorage.getJSON<Record<string, unknown> | null>(STORE, {});
-  const out: Partial<Record<ShortcutId, Chord>> = {};
-  for (const s of SHORTCUTS) {
-    const c = raw && typeof raw === 'object' ? raw[s.id] : undefined;
-    if (isChord(c)) out[s.id] = c;
-  }
-  return out;
-}
-
-let overrides = read();
-const listeners = new Set<() => void>();
-const notify = () => listeners.forEach((l) => l());
-if (typeof window !== 'undefined') {
-  window.addEventListener('storage', (e) => { if (e.key === STORE) { overrides = read(); notify(); } });
-}
-
+/** The chord in force; a binding cleared in the V2 settings reports its default here (keys/registry.ts chordFor gives null). */
 export function chordFor(id: ShortcutId): Chord {
-  return overrides[id] ?? defaultChord(id);
+  return bindingChord(id) ?? defaultChord(id);
 }
 
 export function isDefaultChord(id: ShortcutId): boolean {
-  return !overrides[id];
+  return !isOverridden(id);
 }
 
 /** null puts the default back. */
 export function setChord(id: ShortcutId, chord: Chord | null): void {
-  const next = { ...overrides };
-  if (!chord || sameChord(chord, defaultChord(id))) delete next[id];
-  else next[id] = chord;
-  overrides = next;
-  // Without storage this tab keeps it.
-  safeStorage.setJSON(STORE, next);
-  notify();
+  setBindingChord(id, chord ?? defaultChord(id));
 }
-
-function subscribe(l: () => void) { listeners.add(l); return () => { listeners.delete(l); }; }
 
 /** The chord's on-screen label, live across a change in settings. */
 export function useShortcutLabel(id: ShortcutId): string {
-  useSyncExternalStore(subscribe, () => overrides);
-  return formatChord(chordFor(id));
-}
-
-/** The letter or digit a physical key carries on a US layout, if it is one. */
-function keyFromCode(code: string | undefined): string | null {
-  const m = code && /^(?:Key([A-Z])|Digit(\d)|(F\d{1,2}))$/.exec(code);
-  if (!m) return null;
-  return m[1] ? m[1].toLowerCase() : m[2] ?? m[3];
-}
-
-function normalKey(c: Chord): string {
-  return (c.code && keyFromCode(c.code)) || c.key.toLowerCase();
-}
-
-function chordId(c: Chord): string {
-  return `${c.mod ? 'mod+' : ''}${c.alt ? 'alt+' : ''}${c.shift ? 'shift+' : ''}${normalKey(c)}`;
-}
-
-export function sameChord(a: Chord, b: Chord): boolean {
-  return chordId(a) === chordId(b);
-}
-
-const modHeld = (e: KeyboardEvent, mac: boolean) => (mac ? e.metaKey : e.metaKey || e.ctrlKey);
-
-export function matchesChord(e: KeyboardEvent, c: Chord, mac = isMac): boolean {
-  // A Mac's Ctrl belongs to text editing (Ctrl+K) and the system (Ctrl+⌘+F), never to a chord.
-  if (mac && e.ctrlKey) return false;
-  if (modHeld(e, mac) !== c.mod || e.shiftKey !== c.shift || e.altKey !== c.alt) return false;
-  // AltGr reports Ctrl+Alt on Windows, and it types characters.
-  if (e.getModifierState?.('AltGraph')) return false;
-  return c.code ? e.code === c.code : e.key.toLowerCase() === c.key;
+  return useChordLabel(id);
 }
 
 export function matchesShortcut(e: KeyboardEvent, which: ShortcutId): boolean {
-  return matchesChord(e, chordFor(which));
-}
-
-/** The chord a keydown spells, or null while only modifiers are held. */
-export function chordFromEvent(e: KeyboardEvent, mac = isMac): Chord | null {
-  if (MODIFIER_KEYS.has(e.key)) return null;
-  // Option and Shift turn M into µ and 1 into !; the label wants the key.
-  const fromCode = keyFromCode(e.code);
-  const key = (e.altKey || e.shiftKey) && fromCode ? fromCode : e.key.length === 1 ? e.key.toLowerCase() : e.key;
-  return { mod: modHeld(e, mac), shift: e.shiftKey, alt: e.altKey, key, code: e.code || undefined };
+  return bindingMatches(e, which);
 }
 
 /** Why a chord cannot be used for `which`, or null when it can. */
 export function chordProblem(c: Chord, which: ShortcutId, mac = isMac): string | null {
-  const label = formatChord(c, mac);
-  if (!c.mod && !/^f\d{1,2}$/i.test(normalKey(c))) return `Hold ${mac ? '⌘' : 'Ctrl'} with the key, or it would type`;
-  const taken = TAKEN[chordId(c)];
-  if (taken) return taken === 'the browser' ? `${label} belongs to the browser` : `${label} is ${taken} in the editor`;
-  const other = SHORTCUTS.find((s) => s.id !== which && sameChord(chordFor(s.id), c));
-  if (other) return `${label} is already ${other.label}`;
-  return null;
+  return bindingProblem(c, which, mac);
 }
 
 /** Another shortcut on the same keys as `which`, as the keys stand now — a
  *  chord saved before a later default took the same keys. Only one of them
  *  can run, so settings say so on both rows. */
 export function chordConflict(which: ShortcutId): string | null {
-  const mine = chordFor(which);
-  return SHORTCUTS.find((s) => s.id !== which && sameChord(chordFor(s.id), mine))?.label ?? null;
-}
-
-const NAMED_KEYS: Record<string, [mac: string, other: string]> = {
-  ' ': ['Space', 'Space'], Enter: ['↩', 'Enter'], Escape: ['Esc', 'Esc'], Backspace: ['⌫', 'Backspace'],
-  Delete: ['⌦', 'Del'], ArrowUp: ['↑', 'Up'], ArrowDown: ['↓', 'Down'], ArrowLeft: ['←', 'Left'], ArrowRight: ['→', 'Right'],
-};
-
-export function formatChord(c: Chord, mac = isMac): string {
-  const named = NAMED_KEYS[c.key];
-  const key = named ? named[mac ? 0 : 1] : c.key.length === 1 ? c.key.toUpperCase() : c.key;
-  if (mac) return `${c.alt ? '⌥' : ''}${c.shift ? '⇧' : ''}${c.mod ? '⌘' : ''}${key}`;
-  return [c.mod && 'Ctrl', c.alt && 'Alt', c.shift && 'Shift', key].filter(Boolean).join('+');
+  return bindingConflict(which);
 }

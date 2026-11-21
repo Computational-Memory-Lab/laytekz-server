@@ -1,0 +1,54 @@
+/* The rename preview (WP29). The panel, sheet behaviour on a phone and the
+   sticky action row come from .modal in app.css. */
+.rename-preview h3 {
+  margin: 14px 0 6px;
+  font-size: var(--text-s);
+  font-weight: 600;
+  color: var(--text-2);
+}
+.rename-preview__section + .rename-preview__section { border-top: 1px solid var(--hairline); }
+.rename-preview__list { list-style: none; margin: 0; padding: 0; }
+.rename-preview__list--plain li { padding: 3px 0; font-size: var(--text-s); overflow-wrap: anywhere; }
+.rename-preview__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  padding: 4px 0;
+  font-size: var(--text-s);
+  cursor: pointer;
+}
+.rename-preview__row > input { flex: none; transform: translateY(2px); }
+.rename-preview__row.is-disabled { cursor: default; color: var(--text-3); }
+.rename-preview__what { overflow-wrap: anywhere; }
+.rename-preview__note { color: var(--text-3); font-size: var(--text-xs); }
+.rename-preview__warn { color: var(--warn-text); font-size: var(--text-xs); flex-basis: 100%; padding-left: 22px; }
+.rename-preview__where { color: var(--text-2); font-family: var(--font-mono); font-size: var(--text-xs); }
+.rename-preview__file { margin-top: 6px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-2); }
+.rename-preview__group + .rename-preview__group { margin-top: 4px; }
+.rename-preview__diff {
+  display: flex;
+  flex-direction: column;
+  flex-basis: 100%;
+  padding-left: 22px;
+  min-width: 0;
+}
+.rename-preview__diff code {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 1px 4px;
+  border-radius: var(--radius-xs);
+}
+.rename-preview__del { background: var(--error-soft); }
+.rename-preview__add { background: var(--accent-soft); }
+.rename-preview__sub { margin: 0 0 6px; color: var(--text-3); font-size: var(--text-xs); }
+.rename-preview__warnings { margin: 8px 0 0; padding: 8px 10px 8px 26px; border-radius: var(--radius-s); background: var(--warn-soft); color: var(--warn-text); font-size: var(--text-s); }
+.rename-preview__warnings li.is-blocking { font-weight: 600; }
+.rename-preview__always { display: flex; align-items: center; gap: 8px; margin-top: 14px; font-size: var(--text-s); color: var(--text-2); cursor: pointer; }
+.rename-preview__foot { margin-top: 4px; }
+.rename-preview__actions { flex-wrap: wrap; }
+@media (max-width: 640px) {
+  .rename-preview__actions .btn { flex: 1 1 100%; }
+}

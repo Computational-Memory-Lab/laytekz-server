@@ -1,0 +1,51 @@
+/* F4 table button and grid picker (WP18). Theme tokens only, so both themes follow. */
+.tables-tool { position: relative; display: inline-flex; }
+.tables-tool__btn { display: inline-flex; align-items: center; gap: 2px; }
+
+.tables-picker {
+  --tables-cell: 18px;
+  position: absolute; top: calc(100% + 4px); right: 0; z-index: var(--z-popover, 60);
+  min-width: 248px; max-width: min(92vw, 360px); padding: 10px;
+  background: var(--bg-panel-raised, var(--bg-panel)); color: var(--text);
+  border: 1px solid var(--hairline); border-radius: var(--radius-l); box-shadow: var(--shadow-pop);
+  font: var(--text-s) var(--font-ui); display: flex; flex-direction: column; gap: 8px;
+}
+.tables-picker--sheet {
+  --tables-cell: 30px;
+  position: fixed; left: 0; right: 0; bottom: 0; top: auto; max-width: none; min-width: 0;
+  border-radius: var(--radius-l) var(--radius-l) 0 0; padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
+  max-height: 85vh; overflow: auto;
+}
+
+.tables-picker__grid { display: grid; gap: 2px; width: max-content; outline: none; border-radius: var(--radius-xs); padding: 2px; }
+.tables-picker__grid:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+.tables-picker__cell {
+  width: var(--tables-cell); height: var(--tables-cell); box-sizing: border-box;
+  border: 1px solid var(--hairline-strong); border-radius: 2px; background: var(--bg-inset); cursor: pointer;
+}
+.tables-picker__cell.is-on { background: var(--accent-soft); border-color: var(--accent); }
+.tables-picker__grid.is-disabled .tables-picker__cell { cursor: not-allowed; opacity: 0.45; }
+
+.tables-picker__size { display: flex; align-items: baseline; gap: 8px; }
+.tables-picker__size strong { font-size: var(--text-m, 14px); }
+.tables-picker__words { color: var(--text-2); }
+.tables-picker__note { margin: 0; color: var(--warn-text, var(--text-2)); line-height: 1.4; }
+.tables-picker__hint { margin: 0; color: var(--text-3); }
+.tables-picker__insert { align-self: stretch; min-height: 40px; }
+
+.tables-picker__options { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--hairline); padding-top: 8px; }
+.tables-picker__check { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.tables-picker__row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.tables-picker__rowlabel { color: var(--text-2); }
+.tables-picker__seg { display: inline-flex; border: 1px solid var(--hairline-strong); border-radius: var(--radius-s); overflow: hidden; }
+.tables-picker__segbtn { border: 0; background: transparent; color: var(--text); padding: 2px 8px; font: inherit; cursor: pointer; }
+.tables-picker__segbtn + .tables-picker__segbtn { border-left: 1px solid var(--hairline-strong); }
+.tables-picker__segbtn.is-on { background: var(--accent-fill, var(--accent)); color: var(--on-accent); }
+
+.tables-picker__here { display: flex; flex-direction: column; gap: 2px; border-top: 1px solid var(--hairline); padding-top: 8px; }
+.tables-picker__here .menu__item { display: flex; justify-content: space-between; width: 100%; }
+.tables-picker__kbd { color: var(--text-3); margin-left: 12px; }
+
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-motion="reduce"]) .tables-picker__cell { transition: background-color 60ms var(--ease-out, ease-out); }
+}

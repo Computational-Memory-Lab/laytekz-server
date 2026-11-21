@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
+import { isPreApproved } from './galley-preapproved.js'; // Galley: pre-approved addresses
 import { db } from './db/index.js';
 import type { EmailPending, TokenRecord, User } from './db/types.js';
 import { config } from './config.js';
@@ -190,7 +191,7 @@ async function createAccount(email: string | null, password: string, name?: stri
     subject,
     ...(confirm ? { emailPending: confirm.pending } : {}),
   };
-  if (SIGNUP_MODE === 'approval' && !adminByAddress(user)) user.disabledAt = createdAt;
+  if (SIGNUP_MODE === 'approval' && !adminByAddress(user) && !approvedByAddress(user)) user.disabledAt = createdAt; // Galley: pre-approved addresses
   await db().createUser(user);
   return { user, confirmToken: confirm?.token ?? null };
 }
@@ -248,7 +249,11 @@ export const ACCOUNT_DISABLED = 'This account is disabled. Ask the administrator
 export const AWAITING_APPROVAL = 'An administrator of this server approves new accounts. You can sign in once they have.';
 /** A sign-in refused because the account waits for approval; `code` tells a
  *  client this refusal from a wrong password. */
-export class AwaitingApprovalError extends Error { readonly code = 'awaiting-approval'; }
+export class AwaitingApprovalError extends Error {
+  readonly code = 'awaiting-approval';
+  // Galley: V2 (WP45) the waiting account's address, for the waiting page; null when it has none.
+  constructor(message: string, readonly account: string | null = null) { super(message); }
+}
 
 /** A confirmed address on ALDINE_ADMIN_EMAILS: the account is an
  *  administrator (as isAdmin decides), so it never waits for an approval. */
@@ -256,12 +261,18 @@ function adminByAddress(u: User): boolean {
   return !u.emailPending && !!u.email && ADMIN_EMAILS.has(u.email.toLowerCase());
 }
 
+/** Galley: a confirmed address on the pre-approved list (galley-preapproved.ts,
+ *  edited on /admin): an ordinary account that does not wait for an approval. */
+function approvedByAddress(u: User): boolean {
+  return !u.emailPending && !!u.email && isPreApproved(u.email);
+}
+
 /** An administrator's account that waits (its address was confirmed, or put
  *  on the list, after it was created) is approved here instead of refused:
  *  nobody else might be there to approve it. */
 async function refuseDisabled(user: User): Promise<void> {
   if (awaitingApproval(user)) {
-    if (!adminByAddress(user)) throw new AwaitingApprovalError(AWAITING_APPROVAL);
+    if (!adminByAddress(user) && !approvedByAddress(user)) throw new AwaitingApprovalError(AWAITING_APPROVAL, user.email ?? null); // Galley: V2 (WP45) the address; pre-approved addresses pass
     await enableAccount(user.id);
     delete user.disabledAt;
     return;
@@ -308,7 +319,7 @@ export async function passwordSignIn(email: string, password: string, confirmTok
     emailConfirmed = true;
     if (!adminByAddress(user)) {
       announceWaiting(user);
-      throw new AwaitingApprovalError(`Your email address is confirmed. ${AWAITING_APPROVAL}`);
+      throw new AwaitingApprovalError(`Your email address is confirmed. ${AWAITING_APPROVAL}`, user.email ?? null); // Galley: V2 (WP45) the address
     }
   }
   await refuseDisabled(user);
@@ -375,7 +386,7 @@ export async function findOrCreateOAuth(profile: OAuthProfile, provider: string)
   const { user } = await createAccount(email, '', profile.name, provider, profile.subject);
   if (awaitingApproval(user)) {
     announceWaiting(user);
-    throw new AwaitingApprovalError(`Your account is created. ${AWAITING_APPROVAL}`);
+    throw new AwaitingApprovalError(`Your account is created. ${AWAITING_APPROVAL}`, user.email ?? null); // Galley: V2 (WP45) the address
   }
   return pub(user);
 }

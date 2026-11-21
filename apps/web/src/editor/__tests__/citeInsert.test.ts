@@ -60,3 +60,17 @@ describe('citationEdit', () => {
     expect(edit).toEqual({ kind: 'insert', from: 8, to: 12, insert: '\\cite{k}', cursor: 16 });
   });
 });
+
+// Galley: V2 (WP19) the new citation's command comes from the document's citation family.
+describe('citationEdit with a command', () => {
+  it('inserts the given command, and \\cite by default', () => {
+    const text = 'As shown by  we';
+    expect(citationEdit(text, 12, 'lamport1994', 12, 'parencite')).toMatchObject({ kind: 'insert', insert: '\\parencite{lamport1994}' });
+    expect(citationEdit(text, 12, 'lamport1994')).toMatchObject({ kind: 'insert', insert: '\\cite{lamport1994}' });
+  });
+
+  it('still adds to an existing citation, whatever its command', () => {
+    const text = 'see \\textcite{knuth1984} here';
+    expect(citationEdit(text, 24, 'lamport1994', 24, 'parencite')).toMatchObject({ kind: 'add', insert: ',lamport1994' });
+  });
+});

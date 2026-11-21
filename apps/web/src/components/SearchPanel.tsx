@@ -4,6 +4,7 @@ import { useDialogs } from './Dialogs';
 import { useToast } from './Toast';
 import { fileIcon, IconChevronRight, IconRefresh, IconReplace, IconTrash, IconX } from './Icons';
 import { safeStorage } from '../util/safeStorage';
+import { takeRegexSeed } from '../features/links/searchSeed'; // Galley: V2 (WP20) Find references seeds a pattern
 
 /** Match case / whole word / regex, remembered per browser; the query is not. */
 const STORE = 'aldine.search';
@@ -27,7 +28,11 @@ const SEED_MAX = 200;
 const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** A focus request from the editor: the shortcut, the palette. `seed` is the editor's selection. */
-export interface SearchFocus { n: number; seed?: string; field: 'query' | 'replace' }
+export interface SearchFocus {
+  n: number; seed?: string; field: 'query' | 'replace';
+  /** Galley: V2 (WP20) the seed is a regular expression (Find references): searched with the regex toggle on, for this search only, never remembered. */
+  regex?: boolean;
+}
 
 interface Props {
   projectId: string;
@@ -145,7 +150,11 @@ export default function SearchPanel({ projectId, branch, rootFile, manual, autho
 
   useEffect(() => {
     if (!focus) return;
-    if (focus.seed && !/[\r\n]/.test(focus.seed) && focus.seed.length <= SEED_MAX) setQuery(toggles.regex ? escapeRegex(focus.seed) : focus.seed);
+    // Galley: V2 (WP20) a pattern seed (SearchFocus.regex, or marked by the links feature) turns regex on and whole word off for this search only.
+    if (focus.seed && (focus.regex || takeRegexSeed(focus.seed))) {
+      setToggles((t) => ({ ...t, regex: true, wholeWord: false }));
+      setQuery(focus.seed);
+    } else if (focus.seed && !/[\r\n]/.test(focus.seed) && focus.seed.length <= SEED_MAX) setQuery(toggles.regex ? escapeRegex(focus.seed) : focus.seed);
     setSelectReq({ n: focus.n, field: focus.field });
   }, [focus?.n]); // eslint-disable-line react-hooks/exhaustive-deps
   // Its own effect so it runs after the render that put a seed into the field.
@@ -158,7 +167,8 @@ export default function SearchPanel({ projectId, branch, rootFile, manual, autho
 
   const setToggle = (k: keyof Toggles) => setToggles((t) => {
     const next = { ...t, [k]: !t[k] };
-    saveToggles(next);
+    // Galley: V2 (WP20) only the toggle clicked is remembered, so a Find references search's regex stays unremembered.
+    saveToggles({ ...loadToggles(), [k]: next[k] });
     return next;
   });
 

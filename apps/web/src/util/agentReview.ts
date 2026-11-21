@@ -3,6 +3,14 @@ import { dayAgo, shortDate } from './dates';
 
 export type AgentBatch = Omit<AgentActivity, 'sessionActive'>;
 
+/** Galley: V2 (WP42). The agents the server names in history (gitops.AGENT_AUTHORS), the default first. */
+export const AGENT_AUTHORS: readonly string[] = ['Claude', 'Codex'];
+const DEFAULT_AGENT = AGENT_AUTHORS[0];
+export const isAgentAuthor = (name: string | null | undefined): boolean => !!name && AGENT_AUTHORS.includes(name);
+
+/** Committer names with no person behind them: the product's, then upstream's (gitops.SERVER_COMMIT_NAMES). */
+export const SERVER_COMMIT_NAMES: readonly string[] = ['Laytekz', 'Aldine'];
+
 const sameMark = (a: AgentBatch['since'], b: AgentBatch['since']) =>
   (a?.head ?? '') === (b?.head ?? '') && (a?.at ?? '') === (b?.at ?? '');
 
@@ -35,7 +43,7 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString
  * What the Revert confirmation says: whose commits go (Claude's), when they
  * were made, and whose name the undoing commit carries.
  */
-export function revertSummary(r: { commits: number; files: number; branch: string; dates: string[]; author: string | null }, now = Date.now()): string {
+export function revertSummary(r: { commits: number; files: number; branch: string; dates: string[]; author: string | null; agent?: string }, now = Date.now()): string {
   const times = r.dates.map((d) => Date.parse(d)).filter((t) => !Number.isNaN(t)).sort((a, b) => a - b);
   let when = '';
   if (times.length) {
@@ -44,13 +52,28 @@ export function revertSummary(r: { commits: number; files: number; branch: strin
     when = a === b ? ` ${b}` : ` between ${shortDate(first, now)} and ${shortDate(last, now)}`;
   }
   const by = r.author ? `under your name, ${r.author}` : 'under your name';
-  return `This undoes ${plural(r.commits, 'commit')} Claude made on ${r.branch}${when}, in ${plural(r.files, 'file')}. `
+  // Galley: V2 (WP42): the agent's own name ("Codex made").
+  return `This undoes ${plural(r.commits, 'commit')} ${r.agent || DEFAULT_AGENT} made on ${r.branch}${when}, in ${plural(r.files, 'file')}. `
     + `It adds a new commit ${by}; the history keeps both, and Undo brings the changes back.`;
 }
 
 /** "Claude (for Ada)": who asked, from the commits' requester trailers; the
- *  server names the presence the same way (collab.ts agentDisplayName). */
-export function agentName(requesters: Iterable<string | undefined>): string {
+ *  server names the presence the same way (collab.ts agentDisplayName).
+ *  Galley: V2 (WP42): `agent` names the agent ("Codex (for Ada)"). */
+export function agentName(requesters: Iterable<string | undefined>, agent: string = DEFAULT_AGENT): string {
   const names = [...new Set([...requesters].filter((n): n is string => !!n))];
-  return names.length ? `Claude (for ${names.join(', ')})` : 'Claude';
+  return names.length ? `${agent} (for ${names.join(', ')})` : agent;
+}
+
+/** Who a set of agent commits is by: "Codex", "Claude and Codex"; Claude when
+ *  none says (a server from before the label). */
+export function agentLabel(agents: Iterable<string | undefined>): string {
+  const named = AGENT_AUTHORS.filter((a) => [...agents].includes(a));
+  return named.length ? named.join(' and ') : DEFAULT_AGENT;
+}
+
+/** The name the review toast opens with: "Codex (for Ada) edited 2 files". */
+export function agentBatchName(commits: Iterable<{ onBehalfOf?: string; agent?: string }>): string {
+  const list = [...commits];
+  return agentName(list.map((c) => c.onBehalfOf), agentLabel(list.map((c) => c.agent)));
 }

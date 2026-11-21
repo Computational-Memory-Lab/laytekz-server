@@ -48,6 +48,10 @@ export interface SpotStore {
   set(name: string, spot: Spot): void;
   /** Follows edits to a file nobody is looking at; kept by the next set or flush. */
   map(name: string, changes: ChangeDesc): void;
+  /** Galley: V2 rename (WP29). The spot of `oldName`, and of every name under
+   *  `oldName/` (a folder's files), moves to the new name. A spot already kept
+   *  at the new name wins; the old one is dropped either way. */
+  rename(oldName: string, newName: string): void;
   flush(): void;
 }
 
@@ -86,6 +90,20 @@ export function makeSpotStore(store: SafeStore = safeStorage, max = MAX): SpotSt
       const m = load();
       const s = m.get(name);
       if (s) m.set(name, mapSpot(s, changes));
+    },
+    // Galley: V2 rename (WP29): spots follow a renamed file or folder.
+    rename(oldName, newName) {
+      if (!oldName || !newName || oldName === newName) return;
+      const m = load();
+      let changed = false;
+      for (const [name, spot] of [...m]) {
+        const rest = name === oldName ? '' : name.startsWith(`${oldName}/`) ? name.slice(oldName.length) : null;
+        if (rest === null) continue;
+        m.delete(name);
+        if (!m.has(newName + rest)) m.set(newName + rest, spot);
+        changed = true;
+      }
+      if (changed) flush();
     },
     flush,
   };

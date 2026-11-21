@@ -1,8 +1,8 @@
 {
   "id": "references",
-  "name": "Cite",
-  "description": "Your project's .bib entries, one click to cite; search 250M+ papers (OpenAlex) or add by DOI/arXiv: fetches BibTeX, appends it, inserts the \\cite.",
-  "version": "0.1.0",
+  "name": "References",
+  "description": "Your project's .bib entries, one click to cite. Search papers or paste a DOI, arXiv ID, PubMed ID, ISBN, a citation or BibTeX: preview the entry, choose its .bib, add it and cite it, with Undo.",
+  "version": "0.2.0",
   "entry": "index.js",
   "icon": "＋",
   "slots": [

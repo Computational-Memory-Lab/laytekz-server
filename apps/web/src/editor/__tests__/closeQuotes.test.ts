@@ -4,6 +4,8 @@ import { EditorView } from '@codemirror/view';
 import { closeBrackets } from '@codemirror/autocomplete';
 import { latex } from 'codemirror-lang-latex';
 import { latexCloseBrackets } from '../latexExtras';
+// Galley: V2 (WP12) the same cases with every auto-pair switch on.
+import { pairsExtension } from '../../features/pairs/pairs';
 
 /** Types `text` one character at a time as input events: input handlers first, then plain insertion. */
 function typeText(text: string, extensions: Extension[]) {
@@ -39,5 +41,13 @@ describe('typing LaTeX quotes and primes', () => {
   it('left out, the package pairs the quotes and a stray one is left behind', () => {
     const without = [latex({ enableLinting: false, enableAutocomplete: false, enableTooltips: false }), closeBrackets()];
     expect(typeText("``quoted''", without)).toBe("``quoted''|'");
+  });
+
+  // Galley: V2 (WP12) the auto-pairs feature types over its own closers, so quotes and primes still come out as typed.
+  it('with every auto-pair switch on, quotes and primes come out as typed', () => {
+    const pairs = [...editor(), pairsExtension({ brackets: true, math: true, quotes: true, tabOut: true })];
+    expect(typeText("``quoted'' and", pairs)).toBe("``quoted'' and|");
+    expect(typeText("$f''(x)$", pairs)).toBe("$f''(x)$|");
+    expect(typeText('"`x"\'', pairs)).toBe('"`x"\'|');
   });
 });

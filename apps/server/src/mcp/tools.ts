@@ -21,7 +21,7 @@ import { looksBinary, rootSiblingPath, cleanCommitMessage, COMMIT_MESSAGE_MAX } 
 import { canEdit, isListed, isOwner } from '../authz.js';
 import { addReference } from '../references.js';
 import { bibLoadedBySource } from '../bibload.js';
-import { bibIndex, labelIndex, wordCount } from '../indexes.js';
+import { bibIndex, labelIndex, compactLabels, wordCount } from '../indexes.js'; // Galley: V2 (WP15) compactLabels
 import { adoptRootIfUnset } from '../root.js';
 import { listAllTemplates, resolveTemplateSeed, type TemplateSeed } from '../templates.js';
 import { trashProject, restorableUntil, TRASH_DAYS } from '../trash.js';
@@ -1014,7 +1014,7 @@ export function registerTools(server: McpServer, identity: McpIdentity, ctx: Too
         // the commit that holds them instead of guessing.
         // Short hashes, the length head and commit use everywhere else.
         const recent = res.committed ? [] : (await gitops.log(meta.id, branch, 30))
-          .filter((c) => c.author === gitops.AGENT_COMMIT_AUTHOR).slice(0, 5)
+          .filter((c) => gitops.isAgentAuthor(c.author)).slice(0, 5) // Galley: V2 (WP42) any agent
           .map((c) => ({ hash: c.hash.slice(0, e.head.length || 7), date: c.date, message: c.message }));
         // "Nothing was waiting", not "everything is committed": after a
         // restart inside the debounce window the ledger is empty while the
@@ -1104,13 +1104,14 @@ export function registerTools(server: McpServer, identity: McpIdentity, ctx: Too
     try {
       const meta = await resolveProject(identity, project);
       await gitops.ensureWorktree(meta.id, branch);
-      return ok({ labels: labelIndex(meta.id, branch), ...(await echo(meta.id, branch)) });
+      return ok({ labels: compactLabels(await labelIndex(meta.id, branch)), ...(await echo(meta.id, branch)) }); // Galley: V2 (WP15), the tool's contract stays [{label, file}]
     } catch (err) { return toolError(err, { project, branch }); }
   });
 
   server.registerTool('wordcount', {
     ...annotate('Count words', READ),
-    description: 'Word count of the document as it compiles — the root file plus its \\input/\\include graph, commands and comments excluded: {rootFile, total, files}. Use it for length questions instead of estimating from source. A project with no main document yet is an error, not a count of 0.',
+    // Galley: V2 (WP24) the description names the word-count rule and the added result fields
+    description: 'Word count of the document as it compiles, under the project\'s word-count rule (by default "Main text": the body without the title page, abstract, statements, appendices, supplementary material, references, captions and tables), over the root file and everything it includes: {rootFile, total, files, rule, parts, kinds, formulas, sections, target, abstract, worksCited, why, unresolved, otherDocuments}. total is the counted total and equals the sum of files. Use it for length questions instead of estimating from source. A project with no main document yet is an error, not a count of 0.',
     inputSchema: { project: projectParam, branch: branchParam },
   }, async ({ project, branch = 'main' }) => {
     try {
@@ -1119,7 +1120,7 @@ export function registerTools(server: McpServer, identity: McpIdentity, ctx: Too
       // indexes.ts answers {total:0, files:{}} for an empty root, which reads
       // as "your draft has 0 words" when relayed.
       if (!meta.rootFile) return fail('This project has no main document yet, so there is nothing to count — write a .tex file first (the first one written becomes the main document)');
-      return ok({ ...(await wordCount(meta.id, branch)), ...(await echo(meta.id, branch)) });
+      return ok({ ...(await wordCount(meta.id, branch, identity.user?.id ?? null)), ...(await echo(meta.id, branch)) }); // Galley: V2 (WP24) the project rule, else the token owner's default
     } catch (err) { return toolError(err, { project, branch }); }
   });
 

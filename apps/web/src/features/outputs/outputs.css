@@ -1,0 +1,32 @@
+/* F11 generated files and the Download menu (WP34). Theme tokens only, so both themes follow. */
+
+.genfiles { flex: 0 0 auto; display: flex; flex-direction: column; min-height: 0; max-height: 40%; border-top: 1px solid var(--hairline); margin-top: 4px; padding-top: 4px; }
+.genfiles__head { display: flex; align-items: center; gap: 4px; flex: none; border: 0; background: transparent; color: var(--text-2); font: 600 var(--text-s) var(--font-ui); text-align: left; padding: 4px 6px; border-radius: var(--radius-s); cursor: pointer; min-width: 0; }
+@media (hover: hover) and (pointer: fine) { .genfiles__head:hover { color: var(--text); background: var(--bg-hover); } }
+.genfiles__chev { display: inline-flex; flex: none; transition: transform 150ms var(--ease); }
+.genfiles__chev--open { transform: rotate(90deg); }
+.genfiles__title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.genfiles__count { margin-left: auto; flex: none; color: var(--text-3); font-weight: 400; font-variant-numeric: tabular-nums; }
+.genfiles__body { display: flex; flex-direction: column; min-height: 0; overflow: auto; padding: 0 0 4px; }
+.genfiles__list { list-style: none; margin: 0; padding: 0; }
+.genfiles__row { display: flex; flex-direction: column; gap: 1px; padding: 3px 8px 3px 26px; border-radius: var(--radius-s); }
+@media (hover: hover) and (pointer: fine) { .genfiles__row:hover { background: var(--bg-hover); } }
+.genfiles__row--old .genfiles__name { color: var(--text-3); }
+.genfiles__name { color: var(--text); font: var(--text-s) var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.genfiles__line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; font-size: var(--text-xs); color: var(--text-3); }
+.genfiles__actions { display: inline-flex; flex-wrap: wrap; gap: 2px 8px; margin-left: auto; }
+.genfiles__link { border: 0; background: transparent; padding: 0; color: var(--accent); font: inherit; cursor: pointer; text-decoration: none; }
+.genfiles__link:hover { text-decoration: underline; }
+.genfiles__link:disabled { color: var(--text-3); cursor: default; text-decoration: none; }
+.genfiles__link--warn { color: var(--warn-text); }
+.genfiles__badge { color: var(--ok-text); }
+.genfiles__empty { margin: 2px 8px 6px; color: var(--text-3); font-size: var(--text-s); }
+.genfiles__arxiv { align-self: flex-start; margin: 4px 8px 2px 26px; border: 0; background: transparent; padding: 0; color: var(--accent); font: var(--text-xs) var(--font-ui); cursor: pointer; }
+.genfiles__arxiv:hover { text-decoration: underline; }
+.genfiles__pre { max-height: 60vh; overflow: auto; white-space: pre-wrap; word-break: break-word; }
+[data-motion="reduce"] .genfiles__chev { transition: none; }
+@media (pointer: coarse) { .genfiles__head { min-height: 40px; } .genfiles__link, .genfiles__arxiv { min-height: 32px; } }
+
+/* The Download menu's trigger hugs the download button it extends. */
+.pdf-download-menu { padding-left: 2px; padding-right: 2px; margin-left: -4px; }
+.pdf-download-menu svg { width: 12px; height: 12px; }

@@ -13,6 +13,8 @@ export function safeLinkUrl(raw: unknown): string | null {
   if (typeof raw !== 'string') return null;
   let url: URL;
   try { url = new URL(raw.trim()); } catch { return null; }
+  // Galley: V2 (WP20) an address with a user name or password is refused, as the desktop app's openExternal refuses it.
+  if (url.username || url.password) return null;
   return OPENABLE.has(url.protocol) ? url.href : null;
 }
 

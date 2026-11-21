@@ -1,0 +1,10 @@
+/* Feature 19: the Comment button beside text selected in the PDF preview. */
+.pdf-comment-btn {
+  position: fixed;
+  z-index: var(--z-popover, 60);
+  white-space: nowrap;
+  box-shadow: var(--shadow-pop);
+}
+.pdf-comment-btn[disabled] {
+  cursor: progress;
+}

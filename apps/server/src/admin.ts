@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { setSupport, supportSetting } from './instance.js';
+import { preApproved, setPreApproved } from './galley-preapproved.js'; // Galley: pre-approved addresses
 import { db } from './db/index.js';
 import type { Invitation, ProjectMeta, User } from './db/types.js';
 import * as auth from './auth.js';
@@ -13,6 +14,7 @@ import { hocuspocus, onlineUserIds, closeUserConnections } from './collab.js';
 import { publishProjectEvent } from './events.js';
 import { trashProject } from './trash.js';
 import { adminLimiter, clientKey } from './ratelimit.js';
+import { withoutLinksBy } from './refs/link.js'; // Galley: V2 library links (WP35)
 
 /**
  * Instance administration: server-wide metadata for the operator, and the
@@ -196,6 +198,7 @@ async function withdrawOpen(invitations: Invitation[]): Promise<void> {
 }
 
 async function transferProject(meta: ProjectMeta, to: User): Promise<void> {
+  const previous = meta.ownerId; // Galley: V2, the previous owner's library links go with them
   meta.ownerId = to.id;
   const share = meta.share ?? { mode: 'private' as const, collaborators: [] };
   const orcid = await auth.orcidFor(to);
@@ -203,6 +206,7 @@ async function transferProject(meta: ProjectMeta, to: User): Promise<void> {
   // The link carries the previous owner's Zotero key, and searching it reads
   // their whole personal library.
   delete meta.zotero;
+  if (previous) withoutLinksBy(meta, previous); // Galley: V2 library links made with the previous owner's accounts (WP35)
   await store.writeMeta(meta);
   // The new owner invited nobody.
   await withdrawOpen(await store.listProjectInvitations(meta.id));
@@ -261,6 +265,21 @@ export async function registerAdminRoutes(app: FastifyInstance, reqUser: (req: F
       const s = supportSetting();
       console.log(`[aldine] admin ${actor ? who(actor) : 'anonymous (auth off)'} set the support contact to ${s.support ? s.support.value : 'none'}${s.source === 'env' ? ' (ALDINE_SUPPORT)' : ''}`);
       return s;
+    });
+
+    // Galley: addresses (and "@domain" entries) that skip the wait for approval
+    // (galley-preapproved.ts). The whole list is replaced on each save.
+    admin.get('/api/admin/preapproved', async () => preApproved());
+    admin.put<{ Body: { entries?: unknown } | undefined }>('/api/admin/preapproved', async (req, reply) => {
+      const actor = reqUser(req);
+      const by = actor ? who(actor) : 'anonymous (auth off)';
+      try {
+        const saved = setPreApproved(req.body?.entries ?? '', by);
+        console.log(`[laytekz] admin ${by} set the pre-approved list: ${saved.entries.length} entr${saved.entries.length === 1 ? 'y' : 'ies'}`);
+        return saved;
+      } catch (err: any) {
+        return reply.code(400).send({ error: err.message });
+      }
     });
 
     // `:userId`, never `:id`: the project guard in routes.ts reads `params.id`

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api, ApiError, AdminStats, AdminUserRow, type SupportSetting } from '../api';
+import { api, ApiError, AdminStats, AdminUserRow, type PreApprovedList, type SupportSetting } from '../api';
 import { useAuth } from '../components/Auth';
 import Wordmark from '../components/Wordmark';
 import { PRODUCT_NAME } from '../product'; // Galley: the product's own name
@@ -37,6 +37,49 @@ function Stat({ label, value, hint, testId }: { label: string; value: string | n
       <div className="admin__stat-label">{label}</div>
       {hint && <div className="admin__stat-hint">{hint}</div>}
     </div>
+  );
+}
+
+/**
+ * Galley: who skips the wait for approval. One address or "@domain" per line;
+ * the server keeps only what has an "@", so a member list exported from a
+ * mailing list can be pasted whole. Saving replaces the list.
+ */
+function PreApprovedCard() {
+  const [list, setList] = useState<PreApprovedList | null>(null);
+  const [value, setValue] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
+  useEffect(() => {
+    api.adminPreApproved().then((l) => { setList(l); setValue(l.entries.join('\n')); }, () => {});
+  }, []);
+  if (!list) return null;
+  const save = async () => {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const l = await api.setAdminPreApproved(value);
+      setList(l);
+      setValue(l.entries.join('\n'));
+      const n = l.entries.length;
+      setMessage({ text: n ? `Saved ${n} entr${n === 1 ? 'y' : 'ies'}. Anyone on the list who is already waiting gets in the next time they sign in.` : 'Saved. Nobody is approved automatically.', error: false });
+    } catch (err) {
+      setMessage({ text: err instanceof ApiError ? err.message : 'Could not save the list', error: true });
+    } finally { setBusy(false); }
+  };
+  return (
+    <section className="admin__card" data-testid="admin-preapproved">
+      <h2 className="home__section">Approved automatically</h2>
+      <p className="admin__muted">People who sign in with one of these addresses get in without waiting for you. One per line: an email address, or @example.org for everyone at that domain. Everyone else still waits for your approval.</p>
+      <form className="admin__support-form" onSubmit={(e) => { e.preventDefault(); save(); }}>
+        <label className="field__label" htmlFor="admin-preapproved-input">Addresses and domains</label>
+        <textarea id="admin-preapproved-input" className="input admin__preapproved" rows={6} value={value} placeholder={'ada@example.org\n@example.org'} autoCapitalize="none" spellCheck={false} onChange={(e) => setValue(e.target.value)} data-testid="admin-preapproved-input" />
+        <div className="admin__support-row">
+          <button type="submit" className="btn btn--primary" disabled={busy} data-testid="admin-preapproved-save">Save</button>
+        </div>
+      </form>
+      {message && <p className={message.error ? 'admin__error' : 'admin__muted'} role={message.error ? 'alert' : 'status'} data-testid="admin-preapproved-message">{message.text}</p>}
+    </section>
   );
 }
 
@@ -177,6 +220,7 @@ export default function Admin() {
             </div>
 
             <SupportCard />
+            <PreApprovedCard />
 
             <h2 className="home__section">Accounts</h2>
             <div className="admin__table-wrap">

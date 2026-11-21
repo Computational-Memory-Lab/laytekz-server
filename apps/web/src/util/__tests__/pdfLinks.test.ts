@@ -33,6 +33,13 @@ describe('safeLinkUrl', () => {
       expect(safeLinkUrl(raw), raw).toBeNull();
     }
   });
+  // Galley: V2 (WP20) credentials in an address are refused (source links and PDF links alike).
+  it('drops addresses with a user name or password', () => {
+    for (const raw of ['https://user:pass@example.org/', 'https://user@example.org/', 'http://:secret@example.org']) {
+      expect(safeLinkUrl(raw), raw).toBeNull();
+    }
+    expect(safeLinkUrl('mailto:someone@example.org')).toBe('mailto:someone@example.org');
+  });
   it('drops anything that is not a string', () => {
     for (const raw of [undefined, null, 42, {}, ['https://example.org']]) expect(safeLinkUrl(raw)).toBeNull();
   });

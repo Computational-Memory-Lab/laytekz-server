@@ -1,0 +1,26 @@
+/* The highlighter's marks (WP32). Translucent, so the selection drawn behind
+   the text still shows through; each theme has its own tuned preset. */
+.cm-hl--yellow { --hl: #f5c40d; }
+.cm-hl--orange { --hl: #ed7429; }
+.cm-hl--pink { --hl: #fa66ba; }
+.cm-hl--green { --hl: #1af091; }
+.cm-hl--sky { --hl: #1ed7fa; }
+.cm-hl--violet { --hl: #8481f6; }
+:root[data-theme="dark"] .cm-hl--yellow { --hl: #876b01; }
+:root[data-theme="dark"] .cm-hl--orange { --hl: #ad5010; }
+:root[data-theme="dark"] .cm-hl--pink { --hl: #ce168f; }
+:root[data-theme="dark"] .cm-hl--green { --hl: #116f42; }
+:root[data-theme="dark"] .cm-hl--sky { --hl: #006071; }
+:root[data-theme="dark"] .cm-hl--violet { --hl: #4d29cd; }
+
+.cm-editor { --hl-mix: 32%; }
+:root[data-theme="dark"] .cm-editor { --hl-mix: 28%; }
+.cm-editor[data-hl-strength="light"] { --hl-mix: 24%; }
+:root[data-theme="dark"] .cm-editor[data-hl-strength="light"] { --hl-mix: 21%; }
+.cm-editor[data-hl-strength="strong"] { --hl-mix: 43%; }
+:root[data-theme="dark"] .cm-editor[data-hl-strength="strong"] { --hl-mix: 38%; }
+
+.cm-hl { background: color-mix(in srgb, var(--hl, #f5c40d) var(--hl-mix, 32%), transparent); }
+
+/* A search match inside a highlight stays visible, yellow on yellow included. */
+.cm-hl .cm-searchMatch, .cm-searchMatch .cm-hl { outline: 1px solid var(--warn); outline-offset: -1px; }

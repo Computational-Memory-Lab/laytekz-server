@@ -93,9 +93,10 @@ traces as the `playwright-<suite>` artifact.
   files must toggle to "All" first. The open file and files the tab just
   created or uploaded show in it anyway, so an absence check needs a file
   added through the API.
-- Dark theme is the app default (stamped pre-paint in `index.html`);
-  Playwright `colorScheme` emulation does *not* switch the app theme —
-  drive `localStorage['aldine.theme']` instead.
+- The default appearance is "Match system" (stamped pre-paint in
+  `index.html`; dark only where `matchMedia` is missing). Playwright's
+  default is a light system, so a spec that expects dark sets
+  `localStorage['aldine.theme']='dark'` (or `colorScheme: 'dark'`).
 - git tokens are passed inline per operation, never written to `.git/config`
   (the compiler can read project dirs).
 - Playwright `webServer` timeouts are long on purpose; kill stray

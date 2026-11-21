@@ -10,8 +10,17 @@ import { outputFileName } from '../util/outputFiles';
 import PdfFindBar from './PdfFindBar';
 import type { PageViewport, PDFDocumentProxy, RenderTask, TextLayer } from 'pdfjs-dist';
 import type { TextContent, TextItem } from 'pdfjs-dist/types/src/display/api';
+// Galley: V2 (WP05) the PDF accessor, the PDF app menu and selection reports for feature modules.
+import { Menu, type MenuEntry } from './Menu';
+import type { MenuAnchor } from '../util/menuModel';
+import type { PdfPaneFeatureHandle, PdfPaneFeatureHost } from '../features/types';
+import type { PdfMenuTarget, PdfRect, PdfTextSelection } from '../contextmenu/types';
+import { mergeLineRects, pdfContextMenuItems, pdfMenuEntries, pointInRects, toPdfRect } from '../editor/core/featureHost';
+import { isMac } from '../platform';
+import { outputPdfRel, pdfPathOf, scheduleThumbnail } from '../util/thumbUpload'; // Galley: page-1 thumbnails drawn in the browser
 
-export interface PdfPaneHandle {
+// Galley: V2 (WP05) the handle gains pdf() and textSelection() (PdfPaneFeatureHandle).
+export interface PdfPaneHandle extends PdfPaneFeatureHandle {
   /** Scroll to a page + PDF-space y and flash a highlight (forward SyncTeX). */
   showForward(page: number, y: number, h?: number): void;
   /** Re-run the fit-to-width layout without changing zoom — the zoom label's
@@ -55,6 +64,31 @@ interface Props {
   pages?: PdfPagesStore;
   /** A pinch or Ctrl+wheel over the pages asks for this zoom. */
   onZoom?(zoom: number): void;
+  // Galley: V2 (WP05) feature modules: the PDF app menu (pdfContextMenu) and selection reports.
+  /** Absent: no app menu over the pages and no selection reports, as in V1. */
+  featureHost?: PdfPaneFeatureHost;
+}
+
+/** A PDF text selection with the boxes it covers in client pixels, for
+ *  telling whether a right-click is inside it. */
+type ReadSelection = { selection: PdfTextSelection; client: DOMRect[] };
+
+/** The text nodes of `root` that `range` touches, each with the part of it inside. */
+function rangeTextParts(range: Range, root: Node): Range[] {
+  const parts: Range[] = [];
+  const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+    if (!range.intersectsNode(n)) continue;
+    const len = (n.nodeValue ?? '').length;
+    const from = n === range.startContainer ? range.startOffset : 0;
+    const to = n === range.endContainer ? range.endOffset : len;
+    if (to <= from) continue;
+    const part = document.createRange();
+    part.setStart(n, from);
+    part.setEnd(n, to);
+    parts.push(part);
+  }
+  return parts;
 }
 
 /** A laid-out page: its canvas, CSS pixels per PDF point, and its viewport
@@ -427,7 +461,7 @@ function stretch(info: PageInfo[], ratio: number) {
 /** CSS pixels per PDF point of a page as it is sized now, stretched or not. */
 const shownScale = (info: PageInfo) => info.el.offsetHeight / info.view.height;
 
-const PdfPane = forwardRef<PdfPaneHandle, Props>(function PdfPane({ pdfUrl, branch, status, zoom = 1, hasErrors = false, stale = false, staleNote, notice, ready = true, hasTex = true, onFirstOpen, onInverse, onShowErrors, pages, onZoom }, ref) {
+const PdfPane = forwardRef<PdfPaneHandle, Props>(function PdfPane({ pdfUrl, branch, status, zoom = 1, hasErrors = false, stale = false, staleNote, notice, ready = true, hasTex = true, onFirstOpen, onInverse, onShowErrors, pages, onZoom, featureHost }, ref) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const typesetKeys = useShortcutLabel('typeset');
   const innerRef = useRef<HTMLDivElement>(null);
@@ -460,6 +494,42 @@ const PdfPane = forwardRef<PdfPaneHandle, Props>(function PdfPane({ pdfUrl, bran
   const pageInfo = useRef<PageInfo[]>([]);
   /** Whether the first click of the current click run landed on a link. */
   const clickOnLink = useRef(false);
+  // Galley: V2 (WP05) the document on screen (pdf()), the feature host, the PDF app menu.
+  /** The document whose layout is on screen, with its link. */
+  const shownDoc = useRef<LoadedPdf | null>(null);
+  const featureHostRef = useRef(featureHost);
+  featureHostRef.current = featureHost;
+  const [pdfMenu, setPdfMenu] = useState<{ items: MenuEntry[]; anchor: MenuAnchor; keyboard: boolean } | null>(null);
+  /** The selection at the right button's press, before the browser can change it. */
+  const menuSelection = useRef<ReadSelection | null>(null);
+  /** The kind of pointer that pressed last: touch keeps the native menu. */
+  const lastPointer = useRef('mouse');
+  /** When the keys last opened the app menu: the contextmenu event they may also send keeps it. */
+  const keyMenuAt = useRef(0);
+
+  /** The text selected in the pages, on the page it starts on, or null. */
+  const readSelection = (): ReadSelection | null => {
+    const sel = document.getSelection();
+    const inner = innerRef.current, doc = shownDoc.current;
+    if (!sel || sel.isCollapsed || !sel.rangeCount || !inner || !doc) return null;
+    const range = sel.getRangeAt(0);
+    if (!inner.contains(range.startContainer)) return null;
+    const start = range.startContainer instanceof Element ? range.startContainer : range.startContainer.parentElement;
+    const wrap = start?.closest('.pdf-page-wrap');
+    const canvas = wrap?.querySelector<HTMLCanvasElement>('canvas[data-page]');
+    const page = Number(canvas?.dataset.page);
+    const info = pageInfo.current[page - 1];
+    const layer = wrap?.querySelector('.pdf-text');
+    if (!wrap || !canvas || !info || !layer) return null;
+    const parts = rangeTextParts(range, layer);
+    const text = parts.map((r) => r.toString()).join('').replace(/\0/g, '');
+    if (!text.trim()) return null;
+    const box = canvas.getBoundingClientRect();
+    const scale = box.height / info.view.height;
+    const client = parts.flatMap((r) => [...r.getClientRects()]).filter((r) => r.width > 0 && r.height > 0);
+    const rects: PdfRect[] = mergeLineRects(client.map((r) => toPdfRect(r, box, scale, info.view)));
+    return { selection: { page, text, rects, pdfUrl: doc.url }, client };
+  };
 
   /** Find: whether its bar is open, what it holds, the matches in a
    *  document, and the one it is on. */
@@ -552,6 +622,14 @@ const PdfPane = forwardRef<PdfPaneHandle, Props>(function PdfPane({ pdfUrl, bran
     },
     openFind() {
       openFindRef.current();
+    },
+    // Galley: V2 (WP05) PdfPaneFeatureHandle.
+    pdf() {
+      const doc = shownDoc.current;
+      return doc ? { url: doc.url, doc: doc.pdf } : null;
+    },
+    textSelection() {
+      return readSelectionRef.current()?.selection ?? null;
     },
   }), []);
 
@@ -697,6 +775,7 @@ const PdfPane = forwardRef<PdfPaneHandle, Props>(function PdfPane({ pdfUrl, bran
     pageInfo.current = [];
     shown.current?.stop();
     shown.current = null;
+    shownDoc.current = null; // Galley: V2 (WP05)
     docRef.current = null;
     setDoc(null);
     collect();
@@ -716,6 +795,7 @@ const PdfPane = forwardRef<PdfPaneHandle, Props>(function PdfPane({ pdfUrl, bran
     renderTask.current++;
     shown.current?.stop();
     shown.current = null;
+    shownDoc.current = null; // Galley: V2 (WP05)
     docRef.current = null;
     collect();
   }, [collect]);
@@ -801,6 +881,7 @@ const PdfPane = forwardRef<PdfPaneHandle, Props>(function PdfPane({ pdfUrl, bran
         if (ratio() !== 1) stretch(layout.info, ratio());
         if (spot) scrollBackTo(scroller, layout.info, spot, at.x, at.y);
         shown.current = layout;
+        shownDoc.current = doc; // Galley: V2 (WP05)
         prev?.stop();
         collect();
         // Find's matches can have arrived while the layout drew its text.
@@ -817,6 +898,24 @@ const PdfPane = forwardRef<PdfPaneHandle, Props>(function PdfPane({ pdfUrl, bran
     })();
     return () => { if (shown.current !== layout) layout.stop(); };
   }, [doc, layoutZoom, widthTick, refitTick, measurePage, collect, empty, markPage]);
+
+  // Galley: page 1 of a successful typeset of the main document, once it has
+  // stayed on screen a few seconds, becomes the project's thumbnail
+  // (util/thumbUpload.ts). Never for a stale or failed run, a read-only
+  // visitor, or a PDF another root file produced.
+  useEffect(() => {
+    if (!doc || status !== 'ok' || stale) return;
+    const p = featureHostRef.current?.page();
+    const run = p?.lastCompile();
+    const project = p?.project();
+    if (!p || !run || !project || !p.canEdit() || (branch !== undefined && p.branch !== branch)) return;
+    if (!run.ok || run.pdfStale || run.pdfUrl !== doc.url || (run.draft && run.needsFullRun)) return;
+    if (pdfPathOf(doc.url) !== outputPdfRel(project.rootFile)) return;
+    return scheduleThumbnail({
+      projectId: p.projectId, branch: p.branch, url: doc.url, pdf: doc.pdf,
+      onScreen: () => docRef.current === doc && shownDoc.current === doc,
+    });
+  }, [doc, status, stale, branch]);
 
   // Typesetting an unchanged document again keeps its PDF link: the new run
   // is the moment to retry the one that would not open, once a run, so a
@@ -925,6 +1024,7 @@ const PdfPane = forwardRef<PdfPaneHandle, Props>(function PdfPane({ pdfUrl, bran
   // The editor keeps its own Find: these keys are the PDF's only while the
   // focus is in the preview.
   const onFindKeys = (e: React.KeyboardEvent) => {
+    if (onMenuKeys(e)) return; // Galley: V2 (WP05) the PDF app menu's keys
     if (matchesChord(e.nativeEvent, FIND_KEYS)) {
       e.preventDefault();
       openFind();
@@ -964,6 +1064,98 @@ const PdfPane = forwardRef<PdfPaneHandle, Props>(function PdfPane({ pdfUrl, bran
     if (page) followLink(page, link.dataset.destY ? Number(link.dataset.destY) : null);
   };
 
+  // Galley: V2 (WP05) selection reports: the text selected in the pages,
+  // after it settles, whenever it changes (null when it goes).
+  const readSelectionRef = useRef(readSelection);
+  readSelectionRef.current = readSelection;
+  const reportsSelection = !!featureHost?.onTextSelection;
+  useEffect(() => {
+    if (!reportsSelection) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let last = 'null';
+    const report = () => {
+      timer = undefined;
+      const s = readSelectionRef.current()?.selection ?? null;
+      const key = JSON.stringify(s);
+      if (key === last) return;
+      last = key;
+      featureHostRef.current?.onTextSelection?.(s);
+    };
+    const later = () => { clearTimeout(timer); timer = setTimeout(report, 150); };
+    document.addEventListener('selectionchange', later);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('selectionchange', later);
+      if (last !== 'null') featureHostRef.current?.onTextSelection?.(null);
+    };
+  }, [reportsSelection]);
+
+  // Galley: V2 (WP05) the PDF app menu (README D2): a plain right-click inside
+  // a text selection that was there before the press opens it when a feature's
+  // entry has items there; otherwise, and with Shift, on touch or with no
+  // entries, the native menu shows as in V1. It ends with Copy.
+  const copySelected = (text: string) => {
+    const fallback = () => {
+      const area = document.createElement('textarea');
+      area.value = text;
+      area.style.position = 'fixed';
+      area.style.opacity = '0';
+      document.body.appendChild(area);
+      area.select();
+      try { document.execCommand('copy'); } finally { area.remove(); }
+    };
+    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).catch(fallback);
+    else fallback();
+  };
+
+  /** The page under a pointer event and the point on it in PDF points. */
+  const pageAt = (e: React.MouseEvent): { page: number | null; point: { x: number; y: number } | null } => {
+    const hit = e.target as HTMLElement;
+    const canvas = hit.closest('.pdf-page-wrap')?.querySelector<HTMLElement>('canvas[data-page]');
+    const page = Number(canvas?.dataset.page);
+    const info = pageInfo.current[page - 1];
+    if (!canvas || !info) return { page: null, point: null };
+    const rect = canvas.getBoundingClientRect();
+    const scale = rect.height / info.view.height;
+    return { page, point: { x: (e.clientX - rect.left) / scale, y: (e.clientY - rect.top) / scale } };
+  };
+
+  const menuFor = (snap: ReadSelection, at: { page: number | null; point: { x: number; y: number } | null }, event: MouseEvent | KeyboardEvent): MenuEntry[] | null => {
+    const host = featureHostRef.current;
+    const entries = host ? pdfMenuEntries(host.modules) : [];
+    if (!host || !entries.length) return null;
+    const target: PdfMenuTarget = { page: at.page, point: at.point, selection: snap.selection, event, pageCtx: host.page() };
+    return pdfContextMenuItems(entries, target, () => copySelected(snap.selection.text));
+  };
+
+  const onPagesPointerDown = (e: React.PointerEvent) => { lastPointer.current = e.pointerType; };
+  const onPagesMouseDown = (e: React.MouseEvent) => {
+    // A Mac's Control-click is a right-click.
+    if (e.button === 2 || (isMac && e.button === 0 && e.ctrlKey)) menuSelection.current = featureHostRef.current ? readSelection() : null;
+  };
+  const onPagesContextMenu = (e: React.MouseEvent) => {
+    const snap = menuSelection.current;
+    menuSelection.current = null;
+    if (Date.now() - keyMenuAt.current < 600) { e.preventDefault(); return; }
+    if (!snap || e.shiftKey || lastPointer.current === 'touch' || !pointInRects(snap.client, e.clientX, e.clientY)) return;
+    const items = menuFor(snap, pageAt(e), e.nativeEvent);
+    if (!items) return;
+    e.preventDefault();
+    setPdfMenu({ items, anchor: { type: 'point', x: e.clientX, y: e.clientY }, keyboard: false });
+  };
+  const onMenuKeys = (e: React.KeyboardEvent) => {
+    if (!(e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) || !featureHostRef.current) return false;
+    const snap = readSelection();
+    if (!snap?.client.length) return false;
+    const items = menuFor(snap, { page: snap.selection.page, point: null }, e.nativeEvent);
+    if (!items) return false;
+    e.preventDefault();
+    keyMenuAt.current = Date.now();
+    const r = snap.client[0];
+    setPdfMenu({ items, anchor: { type: 'rect', rect: { top: r.top, right: r.right, bottom: r.bottom, left: r.left }, placement: 'bottom-start' }, keyboard: true });
+    return true;
+  };
+
   const handleDblClick = (e: React.MouseEvent) => {
     if (!onInverse || clickOnLink.current) return;
     // The page under whatever is on top of it: its text layer, a flash.
@@ -984,7 +1176,8 @@ const PdfPane = forwardRef<PdfPaneHandle, Props>(function PdfPane({ pdfUrl, bran
         {stale && rendered && (
           <div className="pdf-stale" data-testid="pdf-stale">{staleNote ?? 'Preview is from the last successful typeset'}</div>
         )}
-        <div className="pdf-pane__inner" ref={innerRef} onClick={handleClick} onDoubleClick={handleDblClick} title={onInverse ? 'Double-click to jump to source' : undefined} />
+        {/* Galley: V2 (WP05) the pointer handlers of the PDF app menu */}
+        <div className="pdf-pane__inner" ref={innerRef} onClick={handleClick} onDoubleClick={handleDblClick} onPointerDown={onPagesPointerDown} onMouseDown={onPagesMouseDown} onContextMenu={onPagesContextMenu} title={onInverse ? 'Double-click to jump to source' : undefined} />
         {!rendered && (
           <div className="pdf-empty">
             {status === 'compiling' ? (
@@ -1030,6 +1223,19 @@ const PdfPane = forwardRef<PdfPaneHandle, Props>(function PdfPane({ pdfUrl, bran
           inputRef={findInput}
           barRef={findBar}
           style={{ top: barTop }}
+        />
+      )}
+      {/* Galley: V2 (WP05) the PDF app menu */}
+      {pdfMenu && (
+        <Menu
+          items={pdfMenu.items}
+          anchor={pdfMenu.anchor}
+          label="Selected text"
+          testId="pdf-context-menu"
+          initialFocus={pdfMenu.keyboard ? 'first' : 'menu'}
+          instant={pdfMenu.keyboard}
+          returnFocus={scrollRef.current}
+          onClose={() => setPdfMenu(null)}
         />
       )}
     </div>

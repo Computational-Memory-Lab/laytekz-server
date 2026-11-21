@@ -119,3 +119,26 @@ export async function moreAction(page: Page, item: string): Promise<void> {
   await page.getByTestId('home-more').click();
   await page.getByTestId(item).click();
 }
+
+/** Editor: open the project's settings from the toolbar. Galley: the V1
+ *  dialog and the V2 settings page (pages/Settings.tsx) both carry the
+ *  `project-settings` test id around the project's and this browser's rows. */
+export async function openProjectSettings(page: Page): Promise<void> {
+  await page.getByTestId('project-settings-open').click();
+  await expect(page.getByTestId('project-settings')).toBeVisible();
+}
+
+/** Close whichever settings view is open (dialog or page) with its Close button. */
+export async function closeSettings(page: Page): Promise<void> {
+  await page.getByTestId('settings-close').click();
+  await expect(page.getByTestId('settings-close')).toHaveCount(0);
+}
+
+/** Any page: open the V2 settings page the way the app's own entry points do,
+ *  through the cancelable `laytekz:open-settings` window event (settings/types.ts
+ *  OPEN_SETTINGS_EVENT) that the page host handles. */
+export async function openSettingsPage(page: Page, target: { section?: string; setting?: string } = {}): Promise<void> {
+  const handled = await page.evaluate((detail) => !window.dispatchEvent(new CustomEvent('laytekz:open-settings', { cancelable: true, detail })), target);
+  expect(handled, 'the page host handles laytekz:open-settings').toBe(true);
+  await expect(page.getByTestId('settings-page')).toBeVisible();
+}

@@ -9,20 +9,42 @@
     <meta name="theme-color" content="#1c1c1e" />
     <!-- The product name: src/product.ts PRODUCT_NAME (src/__tests__/product.test.ts checks it) -->
     <title>Laytekz</title>
+    <!-- Galley: V2 (WP45) what link previews and app installs show. Always generic: previews of /p/<id>
+         are fetched signed out, so no project name ever appears here. The server adds absolute
+         og:url and og:image when ALDINE_PUBLIC_URL is set (http-headers.ts stampShell). -->
+    <meta name="description" content="Laytekz is a collaborative LaTeX editor: write together, see the PDF update as you type, and keep every version." />
+    <meta property="og:site_name" content="Laytekz" />
+    <meta property="og:title" content="Laytekz" />
+    <meta property="og:description" content="A collaborative LaTeX editor with a live PDF preview." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
     <!-- Apply the appearance before first paint. A stored light or dark choice
-         wins; anything else follows the operating system. Mirrors theme.ts. -->
+         wins; anything else follows the operating system. Mirrors theme.ts.
+         Galley: also the interface text size, contrast and motion settings
+         (V2; settings/apply.ts keeps them afterwards, core.ts lists the sizes). -->
     <script data-prepaint>
       (function () {
-        var a = null;
-        try { a = window.localStorage.getItem('aldine.theme'); } catch (e) {}
+        var s = null;
+        try { s = window.localStorage; } catch (e) {}
+        function get(k) { try { return s ? s.getItem(k) : null; } catch (e) { return null; } }
+        function json(k) { var v = get(k); if (v === null) return null; try { return JSON.parse(v); } catch (e) { return null; } }
+        var root = document.documentElement;
+        var a = get('aldine.theme');
         var t = 'dark';
         if (a === 'light') t = 'light';
         else if (a !== 'dark') {
           try { t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; } catch (e) {}
         }
-        document.documentElement.dataset.theme = t;
+        root.dataset.theme = t;
         var m = document.querySelector('meta[name="theme-color"]');
         if (m) m.setAttribute('content', t === 'light' ? '#f5f5f7' : '#1c1c1e');
+        var z = json('aldine.appearance.scale');
+        if (z === 90 || z === 110 || z === 125) root.style.fontSize = z + '%';
+        if (json('aldine.appearance.contrast') === 'more') root.dataset.contrast = 'more';
+        if (json('aldine.appearance.motion') === 'reduce') root.dataset.motion = 'reduce';
       })();
     </script>
     <!-- The product's mark, drawn as in src/components/LogoMark.tsx -->
@@ -30,6 +52,36 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- Galley: V2 (WP45) readers without JavaScript (link previews, Google's brand check) get the basics. -->
+    <noscript>
+      <p style="max-width:34rem;margin:48px auto;padding:0 16px;font:15px/1.5 system-ui,sans-serif">Laytekz is a collaborative LaTeX editor with a live PDF preview. It needs JavaScript. <a href="./about">About this site</a> · <a href="./privacy">Privacy</a></p>
+    </noscript>
+    <!-- Galley: V2 (WP45) the browsers the app really needs (pdf.js calls Promise.withResolvers; the CSS uses
+         :has() and color-mix()): Chrome or Edge 119, Firefox 121, Safari 17.4. Below that a notice explains,
+         and main.tsx mounts the app only after "Continue anyway". The server's CSP hashes this script. -->
+    <script data-browser-check>
+      (function () {
+        var ok = false;
+        try {
+          ok = typeof Promise.withResolvers === 'function' && !!(window.CSS && CSS.supports
+            && CSS.supports('selector(:has(a))') && CSS.supports('color', 'color-mix(in srgb, red, blue)'));
+        } catch (e) {}
+        if (ok) return;
+        window.__laytekzUnsupported = true;
+        var d = document.createElement('div');
+        d.setAttribute('role', 'alert');
+        d.setAttribute('data-testid', 'unsupported-browser');
+        d.style.cssText = 'position:fixed;left:16px;right:16px;top:16px;z-index:400;max-width:34rem;margin:0 auto;padding:16px 20px;border-radius:10px;background:#2a2c32;color:#f6f3ec;font:15px/1.5 system-ui,-apple-system,sans-serif;box-shadow:0 8px 30px rgba(0,0,0,.3)';
+        d.innerHTML = '<p style="margin:0 0 12px">Laytekz needs a newer browser: Chrome or Edge 119 or later, Firefox 121 or later, or Safari 17.4 or later. In this one, parts such as the PDF preview will not work. You can also use the Laytekz desktop app.</p>'
+          + '<button type="button" data-testid="unsupported-continue" style="font:inherit;font-weight:600;padding:6px 14px;border:0;border-radius:8px;background:#f6f3ec;color:#2a2c32;cursor:pointer">Continue anyway</button>';
+        document.body.appendChild(d);
+        d.querySelector('button').onclick = function () {
+          d.parentNode.removeChild(d);
+          window.__laytekzUnsupported = false;
+          if (typeof window.__laytekzMount === 'function') window.__laytekzMount();
+        };
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

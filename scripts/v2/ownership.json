@@ -1,0 +1,863 @@
+{
+  "version": 1,
+  "doc": "docs/galley-v2/README.md explains this file. Paths are relative to each repository root: \"server\" = server-v2, \"desktop\" = desktop-v2. Globs: * (no slash), ** (any depth), ? and {a,b}; a leading ! removes matches. Every package also owns its notes file and its e2e specs (both listed). \"external\" paths are outside both repositories and are not checked.",
+  "repos": {
+    "server": "server-v2",
+    "desktop": "desktop-v2"
+  },
+  "frozen": {
+    "doc": "Only the integrator edits these after WP01; packages file requests.",
+    "server": [
+      "apps/web/src/features/types.ts",
+      "apps/web/src/features/manifest.ts",
+      "apps/web/src/settings/types.ts",
+      "apps/web/src/keys/types.ts",
+      "apps/web/src/slots/types.ts",
+      "apps/web/src/contextmenu/types.ts",
+      "apps/web/src/commands/types.ts",
+      "apps/web/src/editor/core/types.ts",
+      "apps/web/src/editor/texContext/types.ts",
+      "apps/web/src/settings/registry/index.ts",
+      "apps/server/src/features/types.ts",
+      "apps/server/src/features/index.ts",
+      "apps/server/src/privacy.ts",
+      "GALLEY.md",
+      "CHANGELOG.md",
+      "e2e/tests/mock-zotero.mjs",
+      "e2e/playwright.config.ts",
+      "scripts/v2/**",
+      "docs/galley-v2/README.md"
+    ],
+    "desktop": [
+      "src/main/features/index.js"
+    ]
+  },
+  "integratorAfterWave0": {
+    "doc": "Owned by a wave-0 package, then frozen: from wave 1 on only the integrator edits them, from requests, except where a later package lists one (WP45 owns main.tsx and apps/web/index.html in wave 5).",
+    "server": [
+      "apps/web/src/pages/Editor.tsx",
+      "apps/web/src/components/CodePane.tsx",
+      "apps/web/src/components/PdfPane.tsx",
+      "apps/web/src/editor/visual/history.ts",
+      "apps/web/src/main.tsx",
+      "apps/web/src/pages/Home.tsx",
+      "apps/web/src/components/home/HomeToolbar.tsx",
+      "apps/web/src/editor/{leaveGuard,autoTypeset,branchSignal}.ts",
+      "apps/web/src/util/shortcuts.ts",
+      "apps/web/src/components/{CommandPalette,Menu}.tsx",
+      "apps/web/src/theme.ts",
+      "apps/web/src/{theme,app,home}.css",
+      "apps/web/src/util/useMediaQuery.ts",
+      "apps/web/src/editor/visual/theme.ts",
+      "apps/web/src/e2e/fixtures.ts",
+      "apps/web/index.html"
+    ],
+    "desktop": [
+      "src/main/*.js",
+      "tests/mock-server.mjs",
+      "tests/helpers.mjs",
+      "tests/shell.spec.mjs"
+    ]
+  },
+  "neverEdited": {
+    "doc": "Plan \u00a72.7: never edited in V2.",
+    "server": [
+      "apps/server/src/db/sqlite.ts",
+      "apps/server/src/db/pg.ts",
+      "apps/server/src/db/json.ts",
+      "apps/server/src/config.ts",
+      "apps/server/src/origin-check.ts",
+      "apps/server/src/desktop-handoff.ts",
+      "apps/compiler/format.js",
+      "apps/compiler/guard.js",
+      "CHANGELOG.md"
+    ]
+  },
+  "reserved": {
+    "doc": "Feature ids added after the plan (features 19 and 20). A reserved feature's package gets a number in a later wave; until then nobody edits its directories. Feature 19 (pdfComments) is WPX1's.",
+    "refManagers": {
+      "feature": 20,
+      "server": [
+        "apps/web/src/features/refManagers/**",
+        "apps/server/src/features/refManagers/**"
+      ]
+    }
+  },
+  "packages": {
+    "WP01": {
+      "slug": "contract-freeze",
+      "wave": "0.0",
+      "server": [
+        "apps/web/src/features/types.ts",
+        "apps/web/src/features/manifest.ts",
+        "apps/web/src/features/*/index.ts",
+        "apps/web/src/features/*/settings.ts",
+        "apps/web/src/settings/types.ts",
+        "apps/web/src/keys/types.ts",
+        "apps/web/src/slots/types.ts",
+        "apps/web/src/contextmenu/types.ts",
+        "apps/web/src/commands/types.ts",
+        "apps/web/src/editor/core/types.ts",
+        "apps/web/src/editor/texContext/types.ts",
+        "apps/web/src/settings/registry/index.ts",
+        "apps/web/src/settings/store.ts",
+        "apps/web/src/settings/capabilities.ts",
+        "apps/web/src/settings/registry/core.ts",
+        "apps/web/src/util/desktop.ts",
+        "apps/web/src/api.ts",
+        "apps/web/src/keys/registry.ts",
+        "apps/web/src/commands/index.ts",
+        "apps/web/src/contextmenu/index.ts",
+        "apps/web/src/editor/core/keyChains.ts",
+        "apps/web/src/editor/core/modClick.ts",
+        "apps/web/src/editor/core/hooks.ts",
+        "apps/web/src/editor/core/editorSettingDefs.ts",
+        "apps/web/src/editor/core/autoEdit.ts",
+        "apps/web/src/editor/texContext/index.ts",
+        "apps/web/src/slots/Slot.tsx",
+        "apps/web/src/features/events.ts",
+        "apps/web/src/pages/Settings.tsx",
+        "apps/server/src/features/types.ts",
+        "apps/server/src/features/index.ts",
+        "apps/server/src/features/*/server.ts",
+        "apps/server/src/features/host.ts",
+        "apps/server/src/features/projectSettings.ts",
+        "apps/server/src/collab.ts",
+        "apps/server/src/db/types.ts",
+        "scripts/v2/**",
+        "docs/galley-v2/README.md",
+        "e2e/tests/mock-zotero.mjs",
+        "e2e/tests/mocks/**",
+        "e2e/playwright.config.ts",
+        "docs/galley-v2/WP01.md"
+      ],
+      "desktop": [
+        "src/main/features/index.js",
+        "src/main/features/*/index.js"
+      ],
+      "note": "Runs alone before wave 0. The contract stubs it creates belong to WP02-WP09 from wave 0 on."
+    },
+    "WP02": {
+      "slug": "settings-core",
+      "wave": "0",
+      "server": [
+        "apps/web/src/settings/**",
+        "!apps/web/src/settings/types.ts",
+        "!apps/web/src/settings/registry/index.ts",
+        "apps/web/src/theme.ts",
+        "apps/web/src/__tests__/theme.test.ts",
+        "apps/web/src/util/useMediaQuery.ts",
+        "apps/web/src/util/desktop.ts",
+        "apps/web/src/util/__tests__/useMediaQuery*",
+        "apps/web/src/util/__tests__/desktop*",
+        "apps/web/src/{theme,app,home}.css",
+        "apps/web/src/editor/visual/theme.ts",
+        "apps/web/src/api.ts",
+        "apps/web/src/__tests__/api.test.ts",
+        "apps/web/index.html",
+        "docs/galley-v2/WP02.md",
+        "e2e/tests/202-*.spec.ts"
+      ],
+      "desktop": []
+    },
+    "WP03": {
+      "slug": "server-foundation",
+      "wave": "0",
+      "server": [
+        "apps/server/src/features/{host,kit,prefs,projectSettings,capabilities}.ts",
+        "apps/server/src/features/_probe/**",
+        "apps/server/src/app.ts",
+        "apps/server/src/routes.ts",
+        "apps/server/src/collab.ts",
+        "apps/server/src/store.ts",
+        "apps/server/src/db/types.ts",
+        "apps/server/test/account-prefs*.test.mjs",
+        "apps/server/test/project-settings*.test.mjs",
+        "apps/server/test/feature-host*.test.mjs",
+        "apps/server/test/collab-primitives*.test.mjs",
+        "docs/galley-v2/WP03.md",
+        "e2e/tests/203-*.spec.ts"
+      ],
+      "desktop": []
+    },
+    "WP04": {
+      "slug": "input-core",
+      "wave": "0",
+      "server": [
+        "apps/web/src/keys/**",
+        "!apps/web/src/keys/types.ts",
+        "apps/web/src/commands/**",
+        "!apps/web/src/commands/types.ts",
+        "apps/web/src/contextmenu/**",
+        "!apps/web/src/contextmenu/types.ts",
+        "apps/web/src/editor/core/{keyChains,modClick}.ts",
+        "apps/web/src/editor/core/__tests__/{keyChains,modClick,contextMenu,keys,collisions}*",
+        "apps/web/src/util/shortcuts.ts",
+        "apps/web/src/util/__tests__/shortcuts*",
+        "apps/web/src/util/menuModel.ts",
+        "apps/web/src/util/__tests__/menuModel*",
+        "apps/web/src/components/{CommandPalette,Menu}.tsx",
+        "docs/galley-v2/WP04.md",
+        "e2e/tests/204-*.spec.ts"
+      ],
+      "desktop": []
+    },
+    "WP05": {
+      "slug": "editor-host",
+      "wave": "0",
+      "server": [
+        "apps/web/src/components/{CodePane,PdfPane}.tsx",
+        "apps/web/src/editor/core/{featureHost,language,brackets,completion,editorSettings,editorSettingDefs,hooks}.ts",
+        "apps/web/src/editor/core/__tests__/{featureHost,language,brackets,completion,editorSettings,hooks}*",
+        "apps/web/src/editor/visual/{history,index}.ts",
+        "apps/web/src/editor/spellcheck.ts",
+        "apps/web/src/editor/__tests__/spellcheck*",
+        "docs/galley-v2/WP05.md",
+        "e2e/tests/205-*.spec.ts"
+      ],
+      "desktop": []
+    },
+    "WP06": {
+      "slug": "page-host",
+      "wave": "0",
+      "server": [
+        "apps/web/src/pages/{Editor,Home}.tsx",
+        "apps/web/src/main.tsx",
+        "apps/web/src/components/home/HomeToolbar.tsx",
+        "apps/web/src/editor/{leaveGuard,autoTypeset,branchSignal}.ts",
+        "apps/web/src/editor/__tests__/{leaveGuard,autoTypeset,branchSignal}*",
+        "apps/web/src/slots/**",
+        "!apps/web/src/slots/types.ts",
+        "apps/web/src/features/{host.tsx,events.ts,pageCtx.ts}",
+        "apps/web/src/features/__tests__/**",
+        "apps/web/src/features/wordcount/**",
+        "apps/web/src/features/outputs/**",
+        "apps/web/src/features/_probe/**",
+        "docs/galley-v2/WP06.md",
+        "e2e/tests/206-*.spec.ts"
+      ],
+      "desktop": []
+    },
+    "WP07": {
+      "slug": "settings-shell",
+      "wave": "0",
+      "server": [
+        "apps/web/src/pages/Settings.tsx",
+        "apps/web/src/components/settings/**",
+        "apps/web/src/components/{ProjectSettings,AccountSettings}.tsx",
+        "e2e/fixtures.ts",
+        "e2e/tests/helpers.ts",
+        "e2e/tests/03-collab.spec.ts",
+        "e2e/tests/17-feedback-round1.spec.ts",
+        "e2e/tests/27-compiler-settings.spec.ts",
+        "e2e/tests/30-dialog-fit.spec.ts",
+        "e2e/tests/40-connect-claude.spec.ts",
+        "e2e/tests/43-manual-commits.spec.ts",
+        "e2e/tests/45-shortcut-settings.spec.ts",
+        "e2e/tests/52-vim-mode.spec.ts",
+        "e2e/tests/54-menus-appearance.spec.ts",
+        "e2e/tests/63-editor-misc.spec.ts",
+        "e2e/tests/64-app-shell.spec.ts",
+        "e2e/tests/68-editor-tools.spec.ts",
+        "e2e/tests/71-editor-layout.spec.ts",
+        "e2e/auth-tests/auth.spec.ts",
+        "e2e/auth-tests/commit-email.spec.ts",
+        "e2e/auth-tests/oauth.spec.ts",
+        "e2e/auth-tests/oidc.spec.ts",
+        "e2e/auth-tests/personal-templates.spec.ts",
+        "e2e/auth-tests/sign-in-methods.spec.ts",
+        "e2e/auth-tests/tokens.spec.ts",
+        "docs/galley-v2/WP07.md",
+        "e2e/tests/207-*.spec.ts"
+      ],
+      "desktop": [],
+      "note": "The listed V1 specs are the ones that open a settings dialog; edit them only where the settings page moved a control."
+    },
+    "WP08": {
+      "slug": "typing-core",
+      "wave": "0",
+      "server": [
+        "apps/web/src/editor/texContext/**",
+        "!apps/web/src/editor/texContext/types.ts",
+        "apps/web/src/latex/vocab.ts",
+        "apps/web/src/latex/__tests__/**",
+        "apps/web/src/editor/core/{autoEdit,notices}.ts",
+        "apps/web/src/editor/core/__tests__/{autoEdit,notices,replay}*",
+        "apps/web/src/editor/visual/{decorations,html2latex,clipboard}.ts",
+        "apps/server/src/latex/vocab.ts",
+        "apps/server/test/vocab*.test.mjs",
+        "docs/galley-v2/WP08.md",
+        "e2e/tests/208-*.spec.ts"
+      ],
+      "desktop": [],
+      "note": "visual/{decorations,html2latex,clipboard}.ts: new exports only, no behaviour change."
+    },
+    "WP09": {
+      "slug": "desktop-shell",
+      "wave": "0",
+      "server": [
+        "docs/galley-v2/WP09.md",
+        "e2e/tests/209-*.spec.ts"
+      ],
+      "desktop": [
+        "src/main/*.js",
+        "src/main/features/host.js",
+        "tests/mock-server.mjs",
+        "tests/helpers.mjs",
+        "tests/shell.spec.mjs",
+        "tests/mocks/**"
+      ]
+    },
+    "WP10": {
+      "slug": "escape-typing",
+      "wave": "1",
+      "server": [
+        "apps/web/src/features/escape/**",
+        "docs/galley-v2/WP10.md",
+        "e2e/tests/210-*.spec.ts"
+      ],
+      "desktop": []
+    },
+    "WP11": {
+      "slug": "auto-math",
+      "wave": "1",
+      "server": [
+        "apps/web/src/features/automath/**",
+        "docs/galley-v2/WP11.md",
+        "e2e/tests/211-*.spec.ts"
+      ],
+      "desktop": []
+    },
+    "WP12": {
+      "slug": "auto-pairs",
+      "wave": "1",
+      "server": [
+        "apps/web/src/features/pairs/**",
+        "apps/web/src/editor/completions.ts",
+        "apps/web/src/editor/core/{brackets,completion}.ts",
+        "apps/web/src/editor/__tests__/{completions,closeQuotes}*",
+        "docs/galley-v2/WP12.md",
+        "e2e/tests/212-*.spec.ts"
+      ],
+      "desktop": []
+    },
+    "WP13": {
+      "slug": "math-hover",
+      "wave": "1",
+      "server": [
+        "apps/web/src/features/mathPreview/**",
+        "apps/web/src/editor/visual/{katex,context,preamble,macros}.ts",
+        "apps/web/src/editor/visual/__tests__/{katex,context,preamble,macros}*",
+        "docs/galley-v2/WP13.md",
+        "e2e/tests/213-*.spec.ts"
+      ],
+      "desktop": []
+    },
+    "WP14": {
+      "slug": "table-engine",
+      "wave": "1",
+      "server": [
+        "apps/web/src/editor/tables/**",
+        "apps/web/src/editor/visual/widgets/table.ts",
+        "apps/web/src/editor/visual/widgets/tableMenu.tsx",
+        "apps/web/src/editor/visual/tableEdit.ts",
+        "apps/web/src/editor/visual/__tests__/{tableEdit,tableCells}*",
+        "docs/galley-v2/WP14.md",
+        "e2e/tests/214-*.spec.ts"
+      ],
+      "desktop": []
+    },
+    "WP15": {
+      "slug": "label-cite-index",
+      "wave": "1",
+      "server": [
+        "apps/server/src/labels.ts",
+        "apps/server/src/citesetup.ts",
+        "apps/server/src/bib.ts",
+        "apps/server/src/indexes.ts",
+        "apps/server/src/mcp/tools.ts",
+        "apps/server/src/features/citations/**",
+        "apps/server/src/features/crossrefs/**",
+        "apps/server/test/labels*.test.mjs",
+        "apps/server/test/cite-setup*.test.mjs",
+        "apps/server/test/citesetup*.test.mjs",
+        "apps/server/test/bib*.test.mjs",
+        "docs/galley-v2/WP15.md",
+        "e2e/tests/215-*.spec.ts"
+      ],
+      "desktop": []
+    },
+    "WP16": {
+      "slug": "reference-lookup",
+      "wave": "1",
+      "server": [
+        "apps/server/src/refs/{http,identify,merge,bibtex,keys,config}.ts",
+        "apps/server/src/refs/sources/**",
+        "apps/server/src/references.ts",
+        "apps/server/src/ratelimit.ts",
+        "apps/server/src/features/references/**",
+        "e2e/tests/mocks/refs.mjs",
+        "apps/server/test/refs-*.test.mjs",
+        "docs/galley-v2/WP16.md",
+        "e2e/tests/216-*.spec.ts"
+      ],
+      "desktop": []
+    },
+    "WP17": {
+      "slug": "console-terminal",
+      "wave": "1",
+      "server": [
+        "docs/galley-v2/WP17.md",
+        "e2e/tests/217-*.spec.ts"
+      ],
+      "desktop": [
+        "src/main/features/console/{index,console-panel,console-sessions,console-bridge,shell-env,pty-host}.js",
+        "src/preload/console.cjs",
+        "src/ui/console*",
+        "src/ui/vendor/**",
+        "scripts/vendor-xterm.mjs",
+        "build/after-pack.cjs",
+        "package.json",
+        "package-lock.json",
+        "electron-builder.yml",
+        ".github/workflows/windows-smoke.yml",
+        "tests/console.spec.mjs",
+        "tests/smoke-packaged.mjs"
+      ]
+    },
+    "WP18": {
+      "slug": "table-tools",
+      "wave": "2",
+      "server": [
+        "apps/web/src/features/tables/**",
+        "apps/web/src/editor/visual/widgets/table.ts",
+        "apps/web/src/editor/visual/widgets/tableMenu.tsx",
+        "apps/web/src/editor/visual/decorations.ts",
+        "apps/web/src/editor/visual/__tests__/decorations*",
+        "e2e/tests/83-format-document.spec.ts",
+        "docs/galley-v2/WP18.md",
+        "e2e/tests/218-*.spec.ts"
+      ],
+      "desktop": []
+    },
+    "WP19": {
+      "slug": "citation-picker",
+      "wave": "2",
+      "server": [
+        "apps/web/src/features/citations/**",
+        "apps/web/src/editor/latexExtras.ts",
+        "apps/web/src/editor/citeInsert.ts",
+        "apps/web/src/editor/__tests__/{citeInsert,citeLookup,keyCommands,bibCache}*",
+        "docs/galley-v2/WP19.md",
+        "e2e/tests/219-*.spec.ts"
+      ],
+      "desktop": []
+    },
+    "WP20": {
+      "slug": "link-follow",
+      "wave": "2",
+      "server": [
+        "apps/web/src/features/links/**",
+        "apps/web/src/util/pdfLinks.ts",
+        "apps/web/src/util/__tests__/pdfLinks*",
+        "apps/web/src/editor/spellcheck.ts",
+        "apps/web/src/editor/__tests__/spellcheck*",
+        "apps/web/src/components/SearchPanel.tsx",
+        "docs/galley-v2/WP20.md",
+        "e2e/tests/220-*.spec.ts"
+      ],
+      "desktop": []
+    },
+    "WP21": {
+      "slug": "math-pdf-crop",
+      "wave": "2",
+      "server": [
+        "apps/web/src/features/mathPreview/pdf/**",
+        "apps/server/src/compile.ts",
+        "apps/server/src/features/mathPreview/**",
+        "apps/server/test/compile-sources*.test.mjs",
+        "apps/server/test/synctex-route*.test.mjs",
+        "docs/galley-v2/WP21.md",
+        "e2e/tests/221-*.spec.ts"
+      ],
+      "desktop": []
+    },
+    "WP22": {
+      "slug": "references-panel",
+      "wave": "2",
+      "server": [
+        "apps/web/src/features/references/**",
+        "plugins/references/**",
+        "apps/web/src/plugins/host.ts",
+        "docs/galley-v2/WP22.md",
+        "e2e/tests/222-*.spec.ts"
+      ],
+      "desktop": []
+    },
+    "WP23": {
+      "slug": "settings-complete",
+      "wave": "2",
+      "server": [
+        "apps/web/src/pages/Settings.tsx",
+        "apps/web/src/components/settings/**",
+        "apps/web/src/components/{ProjectSettings,AccountSettings}.tsx",
+        "e2e/tests/helpers.ts",
+        "e2e/auth-tests/settings-sync.spec.ts",
+        "docs/galley-v2/WP23.md",
+        "e2e/tests/223-*.spec.ts"
+      ],
+      "desktop": []
+    },
+    "WP24": {
+      "slug": "wordcount-engine",
+      "wave": "2",
+      "server": [
+        "apps/web/src/wordcount/**",
+        "apps/server/src/wordcount/**",
+        "apps/server/src/wordcount.ts",
+        "apps/server/src/indexes.ts",
+        "apps/server/src/mcp/tools.ts",
+        "apps/server/src/features/wordcount/**",
+        "docs/AGENT_API.md",
+        "apps/server/test/wordcount*.test.mjs",
+        "docs/galley-v2/WP24.md",
+        "e2e/tests/224-*.spec.ts"
+      ],
+      "desktop": []
+    },
+    "WP25": {
+      "slug": "agent-launch",
+      "wave": "2",
+      "server": [
+        "apps/web/src/features/agents/**",
+        "apps/web/src/components/ClaudeConnect.tsx",
+        "apps/server/src/features/agents/**",
+        "docs/galley-v2/WP25.md",
+        "e2e/tests/225-*.spec.ts"
+      ],
+      "desktop": [
+        "src/main/features/console/{agents,tokens}.js",
+        "src/ui/console*",
+        "src/preload/console.cjs",
+        "tests/agents.spec.mjs"
+      ]
+    },
+    "WP26": {
+      "slug": "crossref-picker",
+      "wave": "3",
+      "server": [
+        "apps/web/src/features/crossrefs/**",
+        "docs/galley-v2/WP26.md",
+        "e2e/tests/226-*.spec.ts"
+      ],
+      "desktop": []
+    },
+    "WP27": {
+      "slug": "wordcount-ui",
+      "wave": "3",
+      "server": [
+        "apps/web/src/features/wordcount/**",
+        "docs/galley-v2/WP27.md",
+        "e2e/tests/227-*.spec.ts"
+      ],
+      "desktop": []
+    },
+    "WP28": {
+      "slug": "rename-server",
+      "wave": "3",
+      "server": [
+        "apps/server/src/routes.ts",
+        "apps/server/src/gitops.ts",
+        "apps/server/src/search.ts",
+        "apps/server/src/undoImages.ts",
+        "apps/server/src/bibload.ts",
+        "apps/server/src/fileRefs.ts",
+        "apps/server/src/rename.ts",
+        "apps/server/src/features/rename/**",
+        "apps/server/test/rename*.test.mjs",
+        "apps/server/test/file-refs*.test.mjs",
+        "apps/server/test/title-*.test.mjs",
+        "docs/galley-v2/WP28.md",
+        "e2e/tests/228-*.spec.ts"
+      ],
+      "desktop": []
+    },
+    "WP29": {
+      "slug": "rename-web",
+      "wave": "3",
+      "server": [
+        "apps/web/src/features/rename/**",
+        "apps/web/src/editor/fileSpots.ts",
+        "apps/web/src/editor/__tests__/fileSpots*",
+        "docs/galley-v2/WP29.md",
+        "e2e/tests/229-*.spec.ts"
+      ],
+      "desktop": []
+    },
+    "WP30": {
+      "slug": "build-outputs-server",
+      "wave": "3",
+      "server": [
+        "apps/compiler/glossary-rules.js",
+        "apps/compiler/bib-missing.js",
+        "apps/compiler/server.js",
+        "apps/server/src/compile.ts",
+        "apps/server/src/store.ts",
+        "apps/server/src/submission.ts",
+        "apps/server/src/features/outputs/**",
+        "apps/server/test/glossar*.test.mjs",
+        "apps/server/test/biblog*.test.mjs",
+        "apps/server/test/output-list*.test.mjs",
+        "apps/server/test/output-keep*.test.mjs",
+        "apps/server/test/arxiv*.test.mjs",
+        "apps/server/test/root-fallback*.test.mjs",
+        "docs/galley-v2/WP30.md",
+        "e2e/tests/230-*.spec.ts"
+      ],
+      "desktop": [],
+      "note": "apps/compiler/server.js: at most 15 lines; never the validation or token code."
+    },
+    "WP31": {
+      "slug": "env-closing",
+      "wave": "3",
+      "server": [
+        "apps/web/src/features/envclose/**",
+        "apps/web/src/editor/{beginEnv,newlineIndent,completions,latexExtras}.ts",
+        "apps/web/src/editor/core/language.ts",
+        "apps/web/src/editor/__tests__/{beginEnv,newlineIndent,completions}*",
+        "docs/galley-v2/WP31.md",
+        "e2e/tests/231-*.spec.ts"
+      ],
+      "desktop": []
+    },
+    "WP32": {
+      "slug": "highlight-data",
+      "wave": "3",
+      "server": [
+        "apps/web/src/features/highlighter/**",
+        "apps/web/src/editor/yAnchor.ts",
+        "apps/web/src/editor/docCache.ts",
+        "apps/web/src/editor/agentMarks.ts",
+        "apps/web/src/editor/__tests__/{yAnchor,docCache,agentMarks}*",
+        "apps/server/src/features/highlighter/**",
+        "apps/server/test/highlight*.test.mjs",
+        "docs/galley-v2/WP32.md",
+        "e2e/tests/232-*.spec.ts"
+      ],
+      "desktop": []
+    },
+    "WP33": {
+      "slug": "stats-core",
+      "wave": "3",
+      "server": [
+        "apps/web/src/features/stats/core/**",
+        "apps/server/src/features/stats/**",
+        "apps/server/test/stats-*.test.mjs",
+        "docs/galley-v2/WP33.md",
+        "e2e/tests/233-*.spec.ts"
+      ],
+      "desktop": []
+    },
+    "WP34": {
+      "slug": "outputs-web",
+      "wave": "4",
+      "server": [
+        "apps/web/src/features/outputs/**",
+        "apps/web/src/components/ShareModal.tsx",
+        "apps/web/src/util/fileTree.ts",
+        "apps/web/src/util/outputFiles.ts",
+        "apps/web/src/util/__tests__/{fileTree,outputFiles}*",
+        "e2e/tests/62-pdf-pane.spec.ts",
+        "docs/galley-v2/WP34.md",
+        "e2e/tests/234-*.spec.ts"
+      ],
+      "desktop": []
+    },
+    "WP35": {
+      "slug": "library-server",
+      "wave": "4",
+      "server": [
+        "apps/server/src/refs/providers/**",
+        "apps/server/src/refs/link.ts",
+        "apps/server/src/refs/config-libraries.ts",
+        "apps/server/src/zotero.ts",
+        "apps/server/src/admin.ts",
+        "apps/server/src/features/libraries/**",
+        "e2e/tests/mocks/zotero.mjs",
+        "e2e/tests/mocks/mendeley.mjs",
+        "apps/server/test/librar*.test.mjs",
+        "apps/server/test/mendeley*.test.mjs",
+        "apps/server/test/zotero*.test.mjs",
+        "docs/galley-v2/WP35.md",
+        "e2e/tests/235-*.spec.ts"
+      ],
+      "desktop": []
+    },
+    "WP36": {
+      "slug": "libraries-panel",
+      "wave": "4",
+      "server": [
+        "apps/web/src/features/libraries/**",
+        "plugins/zotero/**",
+        "e2e/tests/05-zotero.spec.ts",
+        "docs/galley-v2/WP36.md",
+        "e2e/tests/236-*.spec.ts"
+      ],
+      "desktop": []
+    },
+    "WP37": {
+      "slug": "highlight-ui",
+      "wave": "4",
+      "server": [
+        "apps/web/src/features/highlighter/**",
+        "apps/web/src/editor/visual/index.ts",
+        "e2e/tests/13-visual.spec.ts",
+        "docs/galley-v2/WP37.md",
+        "e2e/tests/237-*.spec.ts"
+      ],
+      "desktop": [],
+      "note": "13-visual.spec.ts: only the added highlight step of the cursor tour."
+    },
+    "WP38": {
+      "slug": "stats-editor",
+      "wave": "4",
+      "server": [
+        "apps/web/src/features/stats/**",
+        "apps/web/src/editor/errorHints.ts",
+        "apps/web/src/editor/__tests__/errorHints*",
+        "docs/galley-v2/WP38.md",
+        "e2e/tests/238-*.spec.ts"
+      ],
+      "desktop": []
+    },
+    "WP39": {
+      "slug": "pet-engine",
+      "wave": "4",
+      "server": [
+        "apps/web/src/features/pet/engine/**",
+        "apps/server/src/features/pet/**",
+        "e2e/fixtures/operator/pet-test.png",
+        "apps/server/test/pet*.test.mjs",
+        "docs/galley-v2/WP39.md",
+        "e2e/tests/239-*.spec.ts"
+      ],
+      "desktop": [],
+      "external": [
+        "deploy/libexec/sync-pet-asset.sh"
+      ]
+    },
+    "WP40": {
+      "slug": "inline-suggest",
+      "wave": "4",
+      "server": [
+        "apps/web/src/features/suggest/**",
+        "!apps/web/src/features/suggest/model/**",
+        "docs/galley-v2/WP40.md",
+        "e2e/tests/240-*.spec.ts"
+      ],
+      "desktop": []
+    },
+    "WP41": {
+      "slug": "desktop-settings-bib",
+      "wave": "4",
+      "server": [
+        "docs/galley-v2/WP41.md",
+        "e2e/tests/241-*.spec.ts"
+      ],
+      "desktop": [
+        "src/main/features/desktopSettings/**",
+        "src/main/features/bibwatch/**",
+        "src/ui/desktop-settings.*",
+        "tests/mocks/libraries.mjs",
+        "tests/desktop-settings.spec.mjs",
+        "tests/bibwatch.spec.mjs"
+      ]
+    },
+    "WP42": {
+      "slug": "agent-label",
+      "wave": "5",
+      "server": [
+        "apps/server/src/gitops.ts",
+        "apps/server/src/activity.ts",
+        "apps/server/src/collab.ts",
+        "apps/server/src/mcp/server.ts",
+        "apps/web/src/components/HistoryPanel.tsx",
+        "apps/web/src/util/agentReview.ts",
+        "apps/web/src/util/__tests__/agentReview*",
+        "e2e/tests/16-agent-ui.spec.ts",
+        "e2e/tests/40-connect-claude.spec.ts",
+        "e2e/tests/77-agent-live-edits.spec.ts",
+        "apps/server/test/agent-label*.test.mjs",
+        "docs/galley-v2/WP42.md",
+        "e2e/tests/242-*.spec.ts"
+      ],
+      "desktop": []
+    },
+    "WP43": {
+      "slug": "suggest-model",
+      "wave": "5",
+      "server": [
+        "apps/web/src/features/suggest/model/**",
+        "apps/web/package.json",
+        "apps/web/package-lock.json",
+        "package-lock.json",
+        "apps/web/vite.config.ts",
+        "THIRD-PARTY-NOTICES.md",
+        "docs/galley-v2/WP43.md",
+        "e2e/tests/243-*.spec.ts"
+      ],
+      "desktop": []
+    },
+    "WP44": {
+      "slug": "pet-runtime",
+      "wave": "5",
+      "server": [
+        "apps/web/src/features/pet/**",
+        "!apps/web/src/features/pet/engine/**",
+        "docs/galley-v2/WP44.md",
+        "e2e/tests/244-*.spec.ts"
+      ],
+      "desktop": []
+    },
+    "WP45": {
+      "slug": "web-readiness",
+      "wave": "5",
+      "server": [
+        "apps/server/src/app.ts",
+        "apps/server/src/auth.ts",
+        "apps/server/src/invites.ts",
+        "apps/server/src/routes.ts",
+        "apps/server/src/http-headers.ts",
+        "apps/server/src/notify.ts",
+        "apps/server/src/features/webShell/**",
+        "apps/web/src/features/webShell/**",
+        "apps/web/src/main.tsx",
+        "apps/web/src/api.ts",
+        "apps/web/src/components/Auth.tsx",
+        "apps/web/src/components/ProductCredit.tsx",
+        "apps/web/index.html",
+        "apps/web/public/**",
+        "deploy/**",
+        "docs/galley-v2/WP45.md",
+        "e2e/tests/245-*.spec.ts"
+      ],
+      "desktop": [],
+      "external": [
+        "deploy/** (the Laytekz deploy scripts beside the repositories)"
+      ],
+      "note": "Starts only after the V1-final merge. srv/routes.ts: the approval-page copy only."
+    },
+    "WPX1": {
+      "slug": "pdf-comments",
+      "wave": "x",
+      "server": [
+        "apps/web/src/features/pdfComments/**",
+        "apps/server/src/features/pdfComments/**",
+        "docs/galley-v2/WPX1.md",
+        "e2e/tests/2x1-*.spec.ts"
+      ],
+      "desktop": [],
+      "note": "Feature 19, the first package outside the plan's 45 (ids WPX<n>)."
+    }
+  }
+}

@@ -1,24 +1,20 @@
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef } from 'react';
-import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection, rectangularSelection, highlightSpecialChars, Decoration, DecorationSet } from '@codemirror/view';
+// Galley: V2 (WP05) gutters, active line, wrapping, brackets, completion and the language moved to editor/core/*.
+import { EditorView, keymap, drawSelection, rectangularSelection, highlightSpecialChars, Decoration, DecorationSet } from '@codemirror/view';
 import { EditorState, StateField, StateEffect, Compartment, Prec } from '@codemirror/state';
-import { indentOnInput, indentUnit, bracketMatching, foldGutter, syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language';
-import { defaultKeymap, indentWithTab } from '@codemirror/commands';
+import { indentOnInput, indentUnit } from '@codemirror/language';
+import { defaultKeymap, indentLess, indentWithTab } from '@codemirror/commands';
 import { highlightSelectionMatches } from '@codemirror/search';
-import { acceptCompletion, autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap } from '@codemirror/autocomplete';
-import { latexCompletionSource } from 'codemirror-lang-latex';
+import { acceptCompletion, completionKeymap } from '@codemirror/autocomplete';
 import type * as Y from 'yjs';
 import { yCollab, yUndoManagerKeymap, ySyncFacet, YRange } from 'y-codemirror.next';
 import type { HocuspocusProvider } from '@hocuspocus/provider';
 import { api, localUser } from '../api';
-import { citeCompletionSource, refCompletionSource, keyCommandCompletionSource, latexPackageCompletions, latexCloseBrackets, keyBraceGuard, citeHoverTooltip, warmBib } from '../editor/latexExtras';
+import { citeHoverTooltip, warmBib } from '../editor/latexExtras';
 import { findKeymap, findPanel, gotoLineTop, openFind, restoreFind } from '../editor/findPanel';
 import { formatChanges } from '../editor/formatChanges';
-import { wrapIndent } from '../editor/wrapIndent';
 import { FORMAT_DOCUMENT_KEYS, matchesChord } from '../util/shortcuts';
-import { everydayCompletionSource, macroCompletionSource, pathCompletionSource } from '../editor/completions';
 import { spellcheckExtension } from '../editor/spellcheck';
-import { latexNewlineIndent } from '../editor/newlineIndent';
-import { aldineHighlight, aldineLatex } from '../editor/latexHighlight';
 import { setComments, CommentRange } from '../editor/commentsEffect';
 import { visualExtensions, editAtCursor, publishEditorFocus, recordOwnCopies, type VisualDeps } from '../editor/visual';
 import { agentHighlight } from '../editor/agentHighlight';
@@ -26,7 +22,6 @@ import { agentMarks, setAgentSeen } from '../editor/agentMarks';
 import { toggleStyle, setSectionLevel, toggleItemize } from '../editor/visual/commands';
 import { commentRangesField } from '../editor/visual/suggestions';
 import { commentTips } from '../editor/commentTips';
-import { closeBeginBrace, closeBeginBraceInput } from '../editor/beginEnv';
 import { documentOutline, OutlineEntry } from '../editor/visual/outline';
 import type { PresenceUser } from './Presence';
 import { useToast } from './Toast';
@@ -41,6 +36,22 @@ import { captureSpot, clampSpot, fileSpots, spotScroll, spotSelection } from '..
 import { jumpEffects, jumpHold } from '../editor/jumpHold';
 import { watchSync, reconnectProvider, type SyncState } from '../editor/syncStatus';
 import { citationEdit } from '../editor/citeInsert';
+// Galley: V2 (WP05) the editor host: feature compartments, the core extraction and the editor settings.
+import { latexHighlighting, latexLanguage } from '../editor/core/language';
+import { beginBraceExtensions, bracketExtensions, bracketKeymap } from '../editor/core/brackets';
+import { CompletionSlot, coreCompletionSources } from '../editor/core/completion';
+import { EDITOR_SETTING_ID_LIST, EditorSettingsSlots, readEditorSettings, watchSettings } from '../editor/core/editorSettings';
+import { createEditorFeatureCtx, EditorFeatureHost } from '../editor/core/featureHost';
+import { citeCommandFor } from '../editor/core/hooks';
+import { undoBoundaryFrom } from '../editor/visual/history';
+import type { CodePaneFeatureHandle, CodePaneFeatureHost } from '../features/types';
+// Galley: V2 (WP02 R2) the settings whose CSS variables change the editor's metrics.
+import { CORE_EXTRA_IDS } from '../settings/registry/core';
+
+const TYPOGRAPHY_SETTING_IDS = [
+  CORE_EXTRA_IDS.editorFont, CORE_EXTRA_IDS.editorFontSize, CORE_EXTRA_IDS.editorLineHeight, CORE_EXTRA_IDS.editorLigatures,
+  CORE_EXTRA_IDS.uiScale, CORE_EXTRA_IDS.visualFontSize, CORE_EXTRA_IDS.visualWidth,
+] as const;
 
 export type EditorMode = 'source' | 'visual';
 
@@ -80,7 +91,8 @@ function reanchor<R extends { from: number; to: number; quote?: string }>(doc: T
 /** The text a search showed on either side of a match, on its line. */
 export interface MatchContext { before: string; after: string }
 
-export interface CodePaneHandle {
+// Galley: V2 (WP05) the handle gains view() (CodePaneFeatureHandle).
+export interface CodePaneHandle extends CodePaneFeatureHandle {
   /** Deferred until the collab doc has synced: a fresh pane holds an empty
    *  document until then, and line N of nothing is line 1. */
   /** onClamped fires (with the line count) when `line` is past the end of the doc. */
@@ -212,6 +224,10 @@ interface Props {
   onFormat?(): void;
   /** The project commits by hand: the baseline is the last commit. */
   manualCommits?: boolean;
+  // Galley: V2 (WP05) the feature modules and the page they run on.
+  /** The enabled feature modules and the page around the pane; absent, no
+   *  feature runs. Read when a file opens: a change applies to the next file. */
+  featureHost?: CodePaneFeatureHost;
 }
 
 /** Approximate word count for LaTeX prose: strips comments, commands, math. */
@@ -260,7 +276,7 @@ function headingAt(entries: OutlineEntry[], line: number): number {
 const sameOutline = (a: OutlineEntry[], b: OutlineEntry[]) =>
   a.length === b.length && a.every((h, i) => h.line === b[i].line && h.level === b[i].level && h.title === b[i].title && h.pos === b[i].pos);
 
-const CodePane = forwardRef<CodePaneHandle, Props>(function CodePane({ projectId, branch, filePath, rootFile, onUsers, onDocChanged, onStats, spellcheck = false, spellLang = '', onOutline, vim = false, onWrite, onAccessDenied, mode = 'source', identity, readOnly = false, onSync, onScope, onOpenComment, onCommentCaret, agentSeenAt = null, changeMarks = false, baselineVersion = 0, manualCommits = false, onFormat }, ref) {
+const CodePane = forwardRef<CodePaneHandle, Props>(function CodePane({ projectId, branch, filePath, rootFile, onUsers, onDocChanged, onStats, spellcheck = false, spellLang = '', onOutline, vim = false, onWrite, onAccessDenied, mode = 'source', identity, readOnly = false, onSync, onScope, onOpenComment, onCommentCaret, agentSeenAt = null, changeMarks = false, baselineVersion = 0, manualCommits = false, onFormat, featureHost }, ref) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const cbRef = useRef({ onDocChanged, onStats, onWrite, onAccessDenied, onSync, onOutline, onScope, onOpenComment, onCommentCaret, onFormat });
@@ -270,7 +286,20 @@ const CodePane = forwardRef<CodePaneHandle, Props>(function CodePane({ projectId
   const toastRef = useRef(toast);
   toastRef.current = toast;
   // Per-mount reconfiguration handles: compartments + the deps visualExtensions needs.
-  const reconfRef = useRef<{ modeComp: Compartment; spellComp: Compartment; vimComp: Compartment; diffComp: Compartment; deps: VisualDeps } | null>(null);
+  // Galley: V2 (WP05) plus the editor settings' compartments, the completion list and the feature host.
+  const reconfRef = useRef<{
+    modeComp: Compartment; spellComp: Compartment; vimComp: Compartment; diffComp: Compartment; deps: VisualDeps;
+    settings: EditorSettingsSlots; completion: CompletionSlot; features: EditorFeatureHost | null;
+  } | null>(null);
+  // Galley: V2 (WP05) what the feature context and the late-bound handle methods read live.
+  const featureHostRef = useRef(featureHost);
+  featureHostRef.current = featureHost;
+  const filePathRef = useRef(filePath);
+  filePathRef.current = filePath;
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
+  const identityRef = useRef(identity);
+  identityRef.current = identity;
   /** The open file's change-mark baseline, once loaded; null: no marks. */
   const baselineRef = useRef<DiffBaseline | null>(null);
   const readOnlyRef = useRef<{ comp: Compartment; ydoc: Y.Doc; on: boolean } | null>(null);
@@ -332,7 +361,8 @@ const CodePane = forwardRef<CodePaneHandle, Props>(function CodePane({ projectId
       const view = viewRef.current;
       if (!view || view.state.readOnly) return null;
       const sel = view.state.selection.main;
-      const edit = citationEdit(view.state.doc.toString(), sel.from, key, sel.to);
+      // Galley: V2 (WP05, WP19) a new citation uses the command the document calls for (core/hooks.ts; \cite by default).
+      const edit = citationEdit(view.state.doc.toString(), sel.from, key, sel.to, citeCommandFor(view.state, filePathRef.current));
       if (edit.kind === 'present') view.dispatch({ selection: { anchor: edit.cursor }, scrollIntoView: true });
       else view.dispatch({ changes: { from: edit.from, to: edit.to, insert: edit.insert }, selection: { anchor: edit.cursor }, scrollIntoView: true, userEvent: 'input' });
       view.focus();
@@ -417,11 +447,19 @@ const CodePane = forwardRef<CodePaneHandle, Props>(function CodePane({ projectId
       // Any edit meanwhile, here or a collaborator's, makes a new doc.
       if (view.state.doc !== doc) return 'stale';
       const changes = formatChanges(before, after);
-      if (!changes.length) return 'unchanged';
+      // Galley: V2 (WP05) the features' afterFormat runs inside the same undo step.
+      const features = reconfRef.current?.features ?? null;
+      const more = !!features?.hasAfterFormat();
+      if (!changes.length && !more) return 'unchanged';
       undoRef.current?.stopCapturing();
-      view.dispatch({ changes, userEvent: 'input.format' });
+      if (changes.length) view.dispatch({ changes, userEvent: 'input.format' });
+      const moved = more && features!.runAfterFormat(view);
       undoRef.current?.stopCapturing();
-      return 'formatted';
+      return changes.length || moved ? 'formatted' : 'unchanged';
+    },
+    // Galley: V2 (WP05) the live view, for the page context (CodePaneFeatureHandle).
+    view() {
+      return viewRef.current;
     },
   }), []);
 
@@ -469,6 +507,32 @@ const CodePane = forwardRef<CodePaneHandle, Props>(function CodePane({ projectId
     const loadGate = new Compartment();
     const deps: VisualDeps = { projectId, branch, rootFile, ydoc, awareness, undoManager, notify: (text, kind) => toastRef.current(text, kind) };
     undoRef.current = undoManager;
+    // Galley: V2 (WP05) the editor settings, the completion list and the feature host of this pane.
+    const editorSettings = readEditorSettings();
+    const settings = new EditorSettingsSlots(editorSettings, mode, provider.isSynced ? ytext.toString() : null);
+    const completion = new CompletionSlot(coreCompletionSources(projectId, branch, () => filePath), editorSettings.completion,
+      (_f, err) => console.warn('[editor] a completion filter failed', err));
+    const host = featureHostRef.current;
+    const features = host ? new EditorFeatureHost({
+      modules: host.modules,
+      ctx: createEditorFeatureCtx({
+        projectId, branch, filePath, rootFile: rootFile ?? null, ydoc, ytext, awareness, undoManager,
+        identity: () => {
+          const who = identityRef.current ?? localUser();
+          return { id: featureHostRef.current?.userId ?? null, name: who.name, color: who.color };
+        },
+        mode: () => modeRef.current,
+        readOnly: () => viewRef.current?.state.readOnly ?? true,
+        synced: () => syncedRef.current,
+        host: () => featureHostRef.current,
+      }),
+      filePath,
+      mode,
+      completion,
+      page: () => featureHostRef.current?.page() ?? null,
+      runCommand: (id) => featureHostRef.current?.runCommand(id) ?? false,
+    }) : null;
+    const chains = !!features?.keyChainsInstalled;
     // First-seen times per agent client, so the presence tooltip can say when
     // the session started; entries drop with the awareness state so the next
     // session (same server-side clientID) gets a fresh start time. A start
@@ -503,47 +567,33 @@ const CodePane = forwardRef<CodePaneHandle, Props>(function CodePane({ projectId
           // first, though its own precedence already puts it ahead of every keymap
           vimComp.of((vim && vimIfLoaded()) || []),
           vimWrite.of(() => cbRef.current.onWrite?.()),
-          lineNumbers(),
+          // Galley: V2 (WP05) each setting-driven extension in a compartment where V1 had it (core/editorSettings.ts).
+          settings.slot('numbers'),
           // Visual hides the gutters: the marks are a Source view only.
           diffComp.of(changeMarks && mode === 'source' ? diffGutter(provider.isSynced ? baselineRef.current : null, manualCommits ? 'commit' : 'checkpoint') : []),
-          highlightActiveLineGutter(),
+          settings.slot('activeLineGutter'),
           highlightSpecialChars(),
-          foldGutter(),
+          settings.slot('whitespace'),
+          settings.slot('fold'),
           drawSelection(),
           EditorState.allowMultipleSelections.of(true),
           indentOnInput(),
-          syntaxHighlighting(aldineHighlight),
-          syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
-          bracketMatching(),
-          closeBrackets(),
-          latexCloseBrackets(filePath),
+          latexHighlighting(),
+          bracketExtensions(filePath),
           rectangularSelection(),
-          highlightActiveLine(),
+          settings.slot('activeLine'),
           jumpHold,
           highlightSelectionMatches(),
-          // Every source is listed here: an override ignores languageData, where the package
-          // registers its command list with a \cite and \ref that insert the bare name.
-          autocompletion({
-            override: [
-              latexPackageCompletions(latexCompletionSource(true)),
-              keyCommandCompletionSource,
-              everydayCompletionSource,
-              macroCompletionSource(projectId, branch, () => filePath),
-              pathCompletionSource(projectId, branch, () => filePath),
-              citeCompletionSource(projectId, branch),
-              refCompletionSource(projectId, branch, () => filePath),
-            ],
-          }),
-          // enableAutocomplete:false keeps the package from adding an autocompletion with its own override;
-          // enableTooltips:false so our richer \cite hover (reference preview) is the only hover
-          aldineLatex({ autoCloseTags: true, enableLinting: false, enableAutocomplete: false, enableTooltips: false }),
-          latexNewlineIndent,
-          Prec.high(keymap.of([{ key: '}', run: closeBeginBrace }])),
-          closeBeginBraceInput,
-          keyBraceGuard,
+          // Galley: V2 (WP05) the one autocompletion(): core sources, then the features' (core/completion.ts).
+          completion.extension,
+          latexLanguage(),
+          beginBraceExtensions(),
           citeHoverTooltip(projectId, branch),
+          // Galley: V2 (WP05) with the feature host, the key chains own Tab (completion 100, indent 0);
+          // its editor keybindings, mod-click and context menu go here too.
+          features ? features.input : [],
           // Tab takes the highlighted completion; with no list open it indents
-          Prec.highest(keymap.of([{ key: 'Tab', run: acceptCompletion }])),
+          chains ? [] : Prec.highest(keymap.of([{ key: 'Tab', run: acceptCompletion }])),
           // ahead of defaultKeymap, whose Mod-i selects the parent syntax node
           Prec.high(keymap.of([
             { key: 'Mod-b', run: toggleStyle('bold') },
@@ -562,13 +612,14 @@ const CodePane = forwardRef<CodePaneHandle, Props>(function CodePane({ projectId
           }),
           findPanel(),
           keymap.of([
-            ...closeBracketsKeymap,
+            ...bracketKeymap,
             // Mod-Enter typesets (the editor page's keys), after Visual's formula and table editors
             ...defaultKeymap.filter((b) => b.key !== 'Mod-Enter'),
             ...findKeymap,
             ...yUndoManagerKeymap,
             ...completionKeymap,
-            indentWithTab,
+            // Galley: V2 (WP05) the chains' indent 0 has Tab; Shift-Tab still outdents when no chain entry takes it.
+            chains ? { key: 'Shift-Tab', run: indentLess } : indentWithTab,
           ]),
           EditorView.updateListener.of((u) => {
             if (u.docChanged || u.selectionSet) {
@@ -598,13 +649,17 @@ const CodePane = forwardRef<CodePaneHandle, Props>(function CodePane({ projectId
           commentTips((id) => cbRef.current.onOpenComment?.(id), (id) => cbRef.current.onCommentCaret?.(id)),
           flashField,
           aldineTheme,
-          EditorView.lineWrapping,
+          settings.slot('wrap'), // Galley: V2 (WP05) EditorView.lineWrapping, unless Source wrapping is off
           // browser-native spellcheck on prose (only meaningful for .tex/.md)
           spellComp.of(spellcheckExtension(spellcheck, spellLang, filePath)),
           EditorView.contentAttributes.of({ 'aria-label': `Text of ${filePath}` }),
           readOnlyComp.of(readOnly ? readOnlyDoc(ydoc) : []),
           loadGate.of(provider.isSynced ? [] : readOnlyDoc(ydoc)),
-          modeComp.of(mode === 'visual' ? visualExtensions(deps) : wrapIndent),
+          // Galley: V2 (WP05) indentation, Source mode's undo boundary, and the feature compartments, outside the mode compartment.
+          settings.slot('indent'),
+          undoBoundaryFrom(undoManager),
+          features ? features.extension : [],
+          modeComp.of(mode === 'visual' ? visualExtensions(deps) : settings.sourceMode()),
           yCollab(ytext, awareness, { undoManager }),
           publishEditorFocus(awareness),
           agentMarks(ydoc, ytext, agentSeenRef.current),
@@ -615,7 +670,22 @@ const CodePane = forwardRef<CodePaneHandle, Props>(function CodePane({ projectId
       }),
     });
     viewRef.current = view;
-    reconfRef.current = { modeComp, spellComp, vimComp, diffComp, deps };
+    reconfRef.current = { modeComp, spellComp, vimComp, diffComp, deps, settings, completion, features };
+    // Galley: V2 (WP05) settings changes reconfigure their compartments in place.
+    const offSettings = watchSettings(EDITOR_SETTING_ID_LIST, () => {
+      const values = readEditorSettings();
+      const effects = settings.update({ values });
+      const list = completion.update({ activation: values.completion });
+      if (list) effects.push(list);
+      if (effects.length && viewRef.current === view) view.dispatch({ effects });
+    });
+    const offFeatures = features ? features.watch((effects) => { if (viewRef.current === view) view.dispatch({ effects }); }) : () => {};
+    // Galley: V2 (WP02 R2) the typography settings are CSS variables on <html>
+    // (settings/apply.ts), which CodeMirror never notices: without a measure
+    // the caret and line heights keep the old size until a scroll or resize.
+    const offTypography = watchSettings(TYPOGRAPHY_SETTING_IDS, () => {
+      requestAnimationFrame(() => { if (viewRef.current === view) view.requestMeasure(); });
+    });
     restoreFind(view);
     readOnlyRef.current = { comp: readOnlyComp, ydoc, on: readOnly };
 
@@ -650,6 +720,9 @@ const CodePane = forwardRef<CodePaneHandle, Props>(function CodePane({ projectId
         view.dispatch({ selection: spotSelection(s), effects: spotScroll(s) });
       }
       for (const run of pendingEdits.current.splice(0)) run();
+      // Galley: V2 (WP05) "Detect from the file" reads the text it now has.
+      const detected = settings.update({ doc: view.state.doc });
+      if (detected.length) view.dispatch({ effects: detected });
       // Compared only against the server's text: the empty doc before it
       // would mark the whole baseline removed.
       if (baselineRef.current) view.dispatch({ effects: setDiffBaseline.of(baselineRef.current) });
@@ -694,6 +767,9 @@ const CodePane = forwardRef<CodePaneHandle, Props>(function CodePane({ projectId
     });
 
     return () => {
+      offSettings(); // Galley: V2 (WP05)
+      offFeatures(); // Galley: V2 (WP05)
+      offTypography(); // Galley: V2 (WP02 R2)
       if (statsTimer) clearTimeout(statsTimer);
       if (outlineTimer) clearTimeout(outlineTimer);
       if (flashTimer.current) { clearTimeout(flashTimer.current); flashTimer.current = null; }
@@ -756,7 +832,12 @@ const CodePane = forwardRef<CodePaneHandle, Props>(function CodePane({ projectId
   useEffect(() => {
     const view = viewRef.current, rc = reconfRef.current;
     if (!view || !rc) return;
-    view.dispatch({ effects: rc.modeComp.reconfigure(mode === 'visual' ? visualExtensions(rc.deps) : wrapIndent) });
+    // Galley: V2 (WP05) Source's content comes from the settings; wrapping and the features follow the mode.
+    view.dispatch({ effects: [
+      rc.modeComp.reconfigure(mode === 'visual' ? visualExtensions(rc.deps) : rc.settings.sourceMode()),
+      ...rc.settings.update({ mode }),
+      ...(rc.features?.setMode(mode) ?? []),
+    ] });
   }, [mode]);
   useEffect(() => {
     const view = viewRef.current, rc = reconfRef.current;

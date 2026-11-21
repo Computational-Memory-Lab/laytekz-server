@@ -25,7 +25,7 @@ import { listAllTemplates, resolveTemplateSeed, type TemplateSeed } from './temp
 import { warmVenueCache } from './catalog.js';
 import { PersonalRepoError, addPersonalRepo, loadPersonalRepos, personalLimit, personalStates, personalView, removePersonalRepo, startTemplateRepoRefresh, syncAllTemplateRepos, syncPersonalRepos, templateRepoStates, templateVisibleTo } from './templaterepos.js';
 import { addReference, fetchBibEntry, searchWorks } from './references.js';
-import { bibIndex, labelIndex, wordCount } from './indexes.js';
+import { bibIndex, labelIndex, compactLabels, wordCount } from './indexes.js'; // Galley: V2 (WP15) compactLabels
 import { unzip, zipEntryCount, ZipError } from './unzip.js';
 import { guessRoot, detectRoot, adoptRootIfUnset } from './root.js';
 import { config } from './config.js';
@@ -51,10 +51,15 @@ import { oauthTokenLimiter } from './ratelimit.js';
 // Galley: the product's own name (product.ts) and the privacy page (privacy.ts).
 import { PRODUCT_KIND, PRODUCT_NAME, productTitle } from './product.js';
 import { privacyPage } from './privacy.js';
+import { waitingMain } from './features/webShell/pages.js'; // Galley: V2 (WP45) the waiting-for-approval page
 import { currentInstance } from './instance.js';
 import { verifyOutputSignature, isOutputPath } from './output-signing.js';
 import { projectThumb, readThumbImage, etagMatches } from './thumbnail.js';
+import { registerThumbnailUpload } from './thumbnail-upload.js'; // Galley: page-1 thumbnails drawn by the browser
 import { readTemplatePreview, withPreviews } from './templatepreviews.js';
+import { publicExt } from './features/projectSettings.js'; // Galley: V2 project settings (ProjectMeta.ext)
+import { moveDocState, copyDocState } from './collab.js'; // Galley: V2 rename, documents keep their state through a rename, a new branch and a copy
+import { renamesIn, undoRenameEffects, signalMoves } from './rename.js'; // Galley: V2 rename, /revert and /undo put a rename back
 
 type Q = { branch?: string; path?: string; name?: string; force?: string };
 
@@ -158,7 +163,8 @@ const MAX_SHARE_ENTRIES = 50;
 export const ENGINES = ['pdf', 'xelatex', 'lualatex'] as const;
 
 async function publicMeta(meta: store.ProjectMeta, user?: auth.PublicUser | null) {
-  const { zotero: z, ownerId, share, github: _legacy, remote: _remote, autopushFailure: _autopushFailure, ...rest } = meta;
+  // Galley: `ext` (V2 project settings) leaves only through publicExt: known keys a client may see.
+  const { zotero: z, ownerId, share, github: _legacy, remote: _remote, autopushFailure: _autopushFailure, ext: _ext, ...rest } = meta;
   // Older web bundles read `github`; emit it alongside `remote` for github links
   // until the next release, then it goes.
   const link = store.remoteLink(meta);
@@ -187,6 +193,7 @@ async function publicMeta(meta: store.ProjectMeta, user?: auth.PublicUser | null
       collectionName: z.collectionName,
     } : null,
     thumb: await projectThumb(meta),
+    ext: publicExt(meta), // Galley: V2 project settings
   };
 }
 
@@ -241,9 +248,11 @@ const VIEWER_WRITES = new Set([
 /** Reads closed to viewers: they reach the owner's linked accounts only to
  *  change the document (a citation search inserts what it finds). */
 const VIEWER_READS_REFUSED = new Set(['/api/projects/:id/zotero/search']);
+/** Galley: V2 server features' viewer writes, 'METHOD /route' (features/host.ts). */
+const FEATURE_VIEWER_WRITES = new Set<string>();
 const viewerMay = (method: string, route: string | undefined) => (method === 'GET' || method === 'HEAD' || method === 'OPTIONS'
   ? !VIEWER_READS_REFUSED.has(route ?? '')
-  : VIEWER_WRITES.has(route ?? ''));
+  : VIEWER_WRITES.has(route ?? '') || FEATURE_VIEWER_WRITES.has(`${method} ${route}`)); // Galley: V2 feature viewer writes
 const VIEW_ONLY = 'You can view this project, not change it. Ask its owner for edit access.';
 
 /** The Zotero link runs on the owner's own API key: an account an
@@ -261,6 +270,13 @@ async function requireOwner(req: any, reply: any, action: string): Promise<store
   }
   return meta;
 }
+
+// Galley: V2 route kit (features/kit.ts) and the feature host's write
+// allowances (features/host.ts): a feature's 'METHOD /api/projects/:id/…'
+// entries join the token and viewer lists above.
+export { reqUser, reqAuthor, requireMember, requireOwner };
+export function allowTokenWrite(entry: string): void { TOKEN_PROJECT_WRITES.add(entry); }
+export function allowViewerWrite(entry: string): void { FEATURE_VIEWER_WRITES.add(entry); }
 
 
 /** A repository as typed or pasted into the import search: `owner/repo`, a
@@ -739,7 +755,16 @@ main.wide{max-width:40rem;margin:32px 0}main.wide h2{font-size:1rem;margin:1.5re
       } catch (err: any) {
         if (err instanceof auth.AwaitingApprovalError) {
           // Galley: a handoff ends here too; the desktop app times out and says why.
-          if (holdsHandoff(req)) reply.header('set-cookie', clearHandoff);
+          const fromDesktop = holdsHandoff(req); // Galley: V2 (WP45)
+          if (fromDesktop) reply.header('set-cookie', clearHandoff);
+          // Galley: V2 (WP45) the waiting page names the address, the contact and the next step; JSON clients keep the body.
+          if (/\btext\/html\b/.test(String(req.headers.accept || ''))) {
+            const mails = email.emailConfigured() && !!config.publicUrl;
+            return authPage(reply, 403, 'Waiting for approval', waitingMain({
+              message: err.message, account: err.account, support: currentInstance().support,
+              mailsApproval: mails, adminsTold: mails && auth.ADMIN_EMAILS.size > 0, desktop: fromDesktop, basePath: config.basePath,
+            }));
+          }
           return signInFailed(req, reply, 403, err.message, 'Waiting for approval');
         }
         return signInFailed(req, reply, 400, `${signInName(provider.label)} failed: ${err.message}`);
@@ -1975,6 +2000,8 @@ main.wide{max-width:40rem;margin:32px 0}main.wide h2{font-size:1rem;margin:1.5re
       req.log.error({ err }, 'copyProject failed');
       return reply.code(500).send({ error: 'Could not copy the project' });
     }
+    // Galley: V2, the copy's documents start from the source's state (highlights come along)
+    try { copyDocState({ projectId: source.id, branch: 'main' }, { projectId: meta.id, branch: 'main' }, store.listFiles(meta.id, 'main').filter((e) => e.type === 'file').map((e) => e.path)); } catch (err) { req.log.warn({ err }, 'copying document state to the copy failed'); }
     noteEdit(meta.id, 'main', editorOf(user));
     const remoteError = await provisionNew(meta, req);
     const row = await projectRow(meta, user, null, (await activitySnapshot()).get(meta.id), 'owner');
@@ -2104,12 +2131,25 @@ main.wide{max-width:40rem;margin:32px 0}main.wide h2{font-size:1rem;margin:1.5re
       if (wasDir && normFrom && normTo?.startsWith(`${normFrom}/`)) {
         return reply.code(400).send({ error: `"${from}" cannot move into a folder inside itself` });
       }
+      // Galley: V2, a rename that would give the main document a name the
+      // compiler refuses is refused here too, as PATCH {rootFile} is
+      {
+        const m = await store.readMeta(req.params.id).catch(() => null);
+        const nextRoot = m?.rootFile && normFrom && normTo
+          ? m.rootFile === normFrom ? normTo : wasDir && m.rootFile.startsWith(`${normFrom}/`) ? normTo + m.rootFile.slice(normFrom.length) : null
+          : null;
+        const bad = nextRoot ? invalidRootFile(nextRoot) : null;
+        if (bad) return reply.code(400).send({ error: bad });
+      }
       // Flush pending edits BEFORE evicting: eviction tombstones the doc and a
       // tombstoned doc is never written, so anything typed inside the autosave
       // debounce window would be renamed away and lost.
       flushBranchDocs(req.params.id, branch);
       // evict the source doc so its final store can't recreate the old file
-      if (wasDir && normFrom) evictTree(req.params.id, branch, normFrom, store.listFiles(req.params.id, branch).map((f) => f.path));
+      // Galley: V2, moveDocState evicts as evictDoc/evictTree did and carries the Yjs snapshot (highlights, agent marks) to the new path
+      if (wasDir && normFrom && normTo) moveDocState(req.params.id, branch, normFrom, normTo, { folder: true, files: store.listFiles(req.params.id, branch).map((f) => f.path) });
+      else if (normFrom && normTo) moveDocState(req.params.id, branch, normFrom, normTo);
+      else if (wasDir && normFrom) evictTree(req.params.id, branch, normFrom, store.listFiles(req.params.id, branch).map((f) => f.path));
       else evictDoc(req.params.id, branch, from);
       store.renameFile(req.params.id, branch, from, to);
       // bib/label indexes carry file paths; a directory rename moves every child
@@ -2129,13 +2169,20 @@ main.wide{max-width:40rem;margin:32px 0}main.wide h2{font-size:1rem;margin:1.5re
           ? meta.rootFile === normFrom ? normTo
             : wasDir && meta.rootFile.startsWith(`${normFrom}/`) ? normTo + meta.rootFile.slice(normFrom.length) : null
           : null;
+        // Galley: V2, the Zotero sync file follows its rename, or the next sync writes the old path again
+        const bib = meta.zotero?.bibFile ? importPath(meta.zotero.bibFile) : null;
+        const movedBib = bib && normFrom && normTo
+          ? bib === normFrom ? normTo : wasDir && bib.startsWith(`${normFrom}/`) ? normTo + bib.slice(normFrom.length) : null
+          : null;
+        if (movedBib && meta.zotero) meta.zotero.bibFile = movedBib;
         if (moved) {
           meta.rootFile = moved;
           await store.writeMeta(meta);
           newRoot = moved;
         } else if (!meta.rootFile) {
+          if (movedBib) await store.writeMeta(meta); // Galley: V2 Zotero sync file
           newRoot = await adoptRootIfUnset(req.params.id, branch, to);
-        }
+        } else if (movedBib) await store.writeMeta(meta); // Galley: V2 Zotero sync file
       } catch { /* meta unreadable — leave as-is */ }
       // Review threads name their file; left on the old path they lose their
       // highlights and Accept edits a file that no longer exists.
@@ -2144,6 +2191,7 @@ main.wide{max-width:40rem;margin:32px 0}main.wide h2{font-size:1rem;margin:1.5re
           if (await comments.movePath(req.params.id, branch, normFrom, normTo, wasDir)) bumpCommentsSignal(req.params.id, branch);
         } catch (err) { req.log.warn({ err }, 'moving review comments with a rename failed'); }
       }
+      if (normFrom && normTo) signalMoves(req.params.id, branch, [[normFrom, normTo]], reqUser(req)?.name ?? null); // Galley: V2, editors with the file open follow it
       return { ok: true, ...(newRoot ? { newRoot } : {}) };
     });
 
@@ -2338,6 +2386,8 @@ main.wide{max-width:40rem;margin:32px 0}main.wide h2{font-size:1rem;margin:1.5re
     if (etagMatches(req.headers['if-none-match'], etag)) return reply.code(304).send();
     return reply.type('image/jpeg').send(img.bytes);
   });
+  // Galley: PUT of the same path, the page-1 image the editor drew (thumbnail-upload.ts).
+  await registerThumbnailUpload(app, reqUser);
 
   // CORS preflight for signed links only: pdf.js probes with a Range header,
   // which is not a safelisted header and so triggers one. An unsigned
@@ -2452,8 +2502,11 @@ main.wide{max-width:40rem;margin:32px 0}main.wide h2{font-size:1rem;margin:1.5re
   app.get<{ Params: { id: string }; Querystring: Q }>('/api/projects/:id/bib', async (req) =>
     bibIndex(req.params.id, req.query.branch || 'main'));
 
-  app.get<{ Params: { id: string }; Querystring: Q }>('/api/projects/:id/labels', async (req) =>
-    labelIndex(req.params.id, req.query.branch || 'main'));
+  // Galley: V2 (WP15) ?detail=1 adds kind, env, title, line, from, duplicate (indexes.labelIndex)
+  app.get<{ Params: { id: string }; Querystring: Q & { detail?: string } }>('/api/projects/:id/labels', async (req) => {
+    const labels = await labelIndex(req.params.id, req.query.branch || 'main');
+    return req.query.detail === '1' ? labels : compactLabels(labels);
+  });
 
   app.get<{ Params: { id: string }; Querystring: Q }>('/api/projects/:id/wordcount', async (req) =>
     wordCount(req.params.id, req.query.branch || 'main'));
@@ -2487,6 +2540,8 @@ main.wide{max-width:40rem;margin:32px 0}main.wide h2{font-size:1rem;margin:1.5re
       // a base_version read before the delete would otherwise pass the
       // per-file conflict check against a tree it never saw.
       markTreeChanged(req.params.id, name);
+      // Galley: V2, the new branch's documents start from `from`'s state (highlights, agent marks)
+      try { copyDocState({ projectId: req.params.id, branch: from }, { projectId: req.params.id, branch: name }, store.listFiles(req.params.id, name).filter((e) => e.type === 'file').map((e) => e.path)); } catch (err) { req.log.warn({ err }, 'copying document state to the new branch failed'); }
       // The branch starts at `from`'s head, so the Claude work this person
       // reviewed there is reviewed here too; with no row the first open would
       // prompt for every Claude commit in the history. The browser copies its
@@ -2562,15 +2617,20 @@ main.wide{max-width:40rem;margin:32px 0}main.wide h2{font-size:1rem;margin:1.5re
       await gitops.autoCommit(req.params.id, branch, cleanCommitMessage(String(checkpoint ?? ''), 'aldine: checkpoint before revert'), author).catch(() => {});
       try {
         const result = await gitops.revertCommits(req.params.id, branch, hashes, message, author);
+        // Galley: V2 rename, a reverted rename moves documents, settings and review threads back (before the refresh, so no document of a new name writes its file back)
+        let renamedRoot: string | undefined;
+        if (result.ok) {
+          for (const rec of await renamesIn(req.params.id, hashes)) renamedRoot = (await undoRenameEffects(req.params.id, branch, rec, reqUser(req)?.name ?? null, { docs: true })) ?? renamedRoot;
+        }
         if (result.ok) {
           refreshBranchDocsFromDisk(req.params.id, branch);
           noteEdit(req.params.id, branch, editorOf(reqUser(req)));
           // Success-metric line (docs/plans/agent-api/00-overview.md, "% of
           // agent commits reverted"): only reverts that undo Claude's work.
-          const agentCommits = (await gitops.commitAuthors(req.params.id, hashes).catch(() => [])).filter((a) => a === gitops.AGENT_COMMIT_AUTHOR).length;
+          const agentCommits = (await gitops.commitAuthors(req.params.id, hashes).catch(() => [])).filter((a) => gitops.isAgentAuthor(a)).length; // Galley: V2 (WP42) any agent
           if (agentCommits) console.log(`[metric] agent_revert user=${reqUser(req)?.id ?? 'operator'} project=${req.params.id} commits=${agentCommits}`);
         }
-        return { ...result, author: gitops.authorName(author) ?? null };
+        return { ...result, author: gitops.authorName(author) ?? null, ...(renamedRoot ? { newRoot: renamedRoot } : {}) }; // Galley: V2 rename, the main document it put back
       } catch (err) {
         return reply.code(err instanceof gitops.RevertRefusedError ? 400 : 409).send({ error: (err as Error).message });
       }
@@ -2592,6 +2652,12 @@ main.wide{max-width:40rem;margin:32px 0}main.wide h2{font-size:1rem;margin:1.5re
       });
     }
     if (r.restored.length) noteEdit(req.params.id, branch, editorOf(reqUser(req)));
+    // Galley: V2 rename, settings and review threads go back with the files (restoreImage moved the documents)
+    if (r.rename) {
+      const newRoot = await undoRenameEffects(req.params.id, branch, r.rename, reqUser(req)?.name ?? null, { docs: false });
+      const { rename: _rename, ...rest } = r;
+      return { ok: true, ...rest, ...(newRoot ? { newRoot } : {}) };
+    }
     return { ok: true, ...r };
   });
 
@@ -2974,6 +3040,7 @@ main.wide{max-width:40rem;margin:32px 0}main.wide h2{font-size:1rem;margin:1.5re
 
   // ---------- reference search (OpenAlex) ----------
   app.get<{ Querystring: { q?: string } }>('/api/references/search', async (req, reply) => {
+    if (auth.AUTH_ENABLED && !reqUser(req)) return reply.code(401).send({ error: 'Sign in required' }); // Galley: V2, the shared OpenAlex budget is for accounts
     const q = (req.query.q || '').trim();
     if (q.length < 3) return [];
     if (!(await refLimiter.take(clientKey(req, reqUser(req)?.id)))) return reply.code(429).send({ error: 'Search rate limit reached — please slow down' });

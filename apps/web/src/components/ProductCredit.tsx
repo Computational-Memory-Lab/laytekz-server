@@ -2,6 +2,9 @@ import type { CSSProperties } from 'react';
 import { withBase } from '../basePath';
 import { PRIVACY_PATH, UPSTREAM_NAME, UPSTREAM_URL } from '../product';
 import { SOURCE_URL } from '../source';
+// Galley: V2 (WP45) the About page and the desktop download link on the sign-in card.
+import { useCapabilities } from '../settings/capabilities';
+import { ABOUT_PATH, desktopLinkLabel, desktopUrlOf } from '../features/webShell/api';
 
 /**
  * Galley: the credit and notices a modified Aldine owes its users, for the
@@ -40,15 +43,33 @@ const quietLink: CSSProperties = {
   textUnderlineOffset: 2,
 };
 
+/** Galley: V2 (WP45) the desktop app's download, when the server names one and this is not the app itself. */
+function DesktopDownload() {
+  const url = desktopUrlOf(useCapabilities() as unknown as Record<string, unknown>);
+  const label = url ? desktopLinkLabel(typeof navigator !== 'undefined' ? navigator.userAgent : '') : null;
+  if (!url || !label) return null;
+  return (
+    <p style={{ ...finePrint, margin: '12px 0 0', fontSize: 'var(--text-sm)' }}>
+      <a href={url} target="_blank" rel="noreferrer" style={quietLink} data-testid="sign-in-desktop">{label}</a>
+    </p>
+  );
+}
+
 /** The sign-in card's last line: the credit, the source and the privacy page. */
 export function SignInFinePrint() {
   return (
+    <>
+    <DesktopDownload />{/* Galley: V2 (WP45) */}
     <p style={finePrint} data-testid="sign-in-credit">
+      {/* Galley: V2 (WP45) the public About page (server-rendered, a full navigation) */}
+      <a href={withBase(ABOUT_PATH)} style={quietLink} data-testid="sign-in-about">About</a>
+      {' · '}
       <BasedOnAldine linkStyle={quietLink} />
       {' · '}
       <a href={SOURCE_URL} target="_blank" rel="noreferrer" style={quietLink} data-testid="sign-in-source">Source code</a>
       {' · '}
       <PrivacyLink testId="sign-in-privacy" style={quietLink} />
     </p>
+    </>
   );
 }

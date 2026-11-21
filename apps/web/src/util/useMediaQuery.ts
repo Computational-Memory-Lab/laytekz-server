@@ -14,6 +14,29 @@ export function useMediaQuery(query: string): boolean {
   return useSyncExternalStore(subscribe, () => media(query)?.matches ?? false, () => false);
 }
 
+const REDUCE = '(prefers-reduced-motion: reduce)';
+
+/* Galley: the "Reduce motion" setting (V2, WP02) puts data-motion="reduce" on
+   <html> (settings/apply.ts); it counts as the system asking. */
+function motionAttribute(): boolean {
+  try { return typeof document !== 'undefined' && document.documentElement?.dataset?.motion === 'reduce'; } catch { return false; }
+}
+
 export function prefersReducedMotion(): boolean {
-  return media('(prefers-reduced-motion: reduce)')?.matches ?? false;
+  return motionAttribute() || (media(REDUCE)?.matches ?? false);
+}
+
+/** prefersReducedMotion, live: the system's setting and the app's own. */
+export function useReducedMotion(): boolean {
+  const subscribe = useCallback((cb: () => void) => {
+    const m = media(REDUCE);
+    m?.addEventListener('change', cb);
+    let observer: MutationObserver | null = null;
+    if (typeof MutationObserver !== 'undefined' && typeof document !== 'undefined') {
+      observer = new MutationObserver(cb);
+      observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-motion'] });
+    }
+    return () => { m?.removeEventListener('change', cb); observer?.disconnect(); };
+  }, []);
+  return useSyncExternalStore(subscribe, prefersReducedMotion, () => false);
 }

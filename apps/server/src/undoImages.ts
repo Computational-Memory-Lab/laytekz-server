@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import { config } from './config.js';
 import * as store from './store.js';
 import * as gitops from './gitops.js';
-import { flushBranchDocs, onAutoCommit, refreshBranchDocsFromDisk } from './collab.js';
+import { flushBranchDocs, onAutoCommit, refreshBranchDocsFromDisk, moveDocState, untombstone, docName, openDocContent } from './collab.js'; // Galley: V2 rename undo moves the documents back
 
 /**
  * Before-images for the undo of an action that made no commit: a Replace all
@@ -22,7 +22,32 @@ const IMAGE_MAX_BYTES = 32 * 1024 * 1024;
 /** `after` null: the action removed the file. `before` null: it created it. */
 export interface ImageFile { path: string; before: Buffer | null; after: Buffer | null }
 
-interface Stored { branch: string; head: string; at: number; files: Array<{ path: string; before: string | null; after: string | null }> }
+/** Galley: V2 rename. What a reference-aware rename changed besides file
+ *  contents: the moves, in the order made, and the project settings that
+ *  named a moved file ([before, after]). Kept in an undo image and, as
+ *  trailers, in the rename's commit. */
+export interface RenameRecord { moves: Array<[string, string]>; meta: { rootFile?: [string, string]; zoteroBib?: [string, string] } }
+
+interface Stored { branch: string; head: string; at: number; files: Array<{ path: string; before: string | null; after: string | null }>; rename?: RenameRecord }
+
+/**
+ * Galley: V2 rename undo. Carries each moved file's document state (its
+ * snapshot: highlights, agent marks, history) back from the new name to the
+ * old one, newest move first, evicting the documents at the new names so
+ * none writes its file back. The old names were tombstoned by the rename a
+ * moment ago; the state that returns to them is their own lineage, so the
+ * tombstone is lifted first (a client still on the old name may rejoin it).
+ * `files`: paths under a moved folder, at either name.
+ */
+export function moveDocsBack(projectId: string, branch: string, moves: ReadonlyArray<[string, string]>, isDir: (p: string) => boolean, filesUnder: (dir: string) => string[]): void {
+  for (const [from, to] of [...moves].reverse()) {
+    const folder = isDir(from) || isDir(to);
+    const children = folder ? [...new Set([...filesUnder(to), ...filesUnder(from).map((p) => to + p.slice(from.length))])] : [];
+    const olds = folder ? children.map((p) => from + p.slice(to.length)) : [from];
+    for (const p of olds) if (openDocContent(projectId, branch, p) === null) untombstone(docName(projectId, branch, p));
+    moveDocState(projectId, branch, to, from, folder ? { folder: true, files: children } : undefined);
+  }
+}
 
 // beside the meta dir, not in it: nothing that scans project meta sees these
 const dirOf = (projectId: string) => path.join(config.metaRoot, 'undo', projectId);
@@ -54,7 +79,7 @@ export async function pruneImages(projectId: string, now = Date.now()): Promise<
 onAutoCommit((projectId) => { void pruneImages(projectId).catch(() => {}); });
 
 /** Keeps the images of one action; null when they are too large to keep. */
-export async function saveImage(projectId: string, branch: string, files: ImageFile[], now = Date.now()): Promise<string | null> {
+export async function saveImage(projectId: string, branch: string, files: ImageFile[], now = Date.now(), rename?: RenameRecord): Promise<string | null> { // Galley: `rename` for the V2 rename's undo
   if (!files.length) return null;
   const bytes = files.reduce((n, f) => n + (f.before?.length ?? 0) + (f.after?.length ?? 0), 0);
   if (bytes > IMAGE_MAX_BYTES) return null;
@@ -65,13 +90,14 @@ export async function saveImage(projectId: string, branch: string, files: ImageF
     head: await gitops.branchHead(projectId, branch),
     at: now,
     files: files.map((f) => ({ path: f.path, before: f.before?.toString('base64') ?? null, after: f.after?.toString('base64') ?? null })),
+    ...(rename ? { rename } : {}), // Galley: V2 rename
   };
   fs.mkdirSync(dirOf(projectId), { recursive: true, mode: 0o700 });
   fs.writeFileSync(fileOf(projectId, token), JSON.stringify(stored), { mode: 0o600 });
   return token;
 }
 
-export type RestoreResult = { restored: string[]; skipped: string[] } | { gone: 'unknown' | 'expired' | 'committed' };
+export type RestoreResult = { restored: string[]; skipped: string[]; rename?: RenameRecord } | { gone: 'unknown' | 'expired' | 'committed' }; // Galley: `rename` (V2) for the route to put the settings back
 
 /**
  * Puts back each file that still holds what the action left in it; a file
@@ -88,6 +114,9 @@ export async function restoreImage(projectId: string, branch: string, token: str
     if ((await gitops.branchHead(projectId, branch)) !== s.head) return { gone: 'committed' };
     // what was typed a moment ago counts as a change since the action
     flushBranchDocs(projectId, branch);
+    // Galley: V2 rename, the documents go back to their old names before the files do
+    const under = (dir: string) => store.listFiles(projectId, branch).filter((e) => e.type === 'file' && e.path.startsWith(`${dir}/`)).map((e) => e.path);
+    if (s.rename?.moves.length) moveDocsBack(projectId, branch, s.rename.moves, (p) => store.isDirectory(projectId, branch, p), under);
     const restored: string[] = [];
     const skipped: string[] = [];
     for (const f of s.files) {
@@ -100,7 +129,11 @@ export async function restoreImage(projectId: string, branch: string, token: str
       else store.writeFile(projectId, branch, f.path, Buffer.from(f.before, 'base64'));
       restored.push(f.path);
     }
+    // Galley: V2 rename, a moved folder left empty goes too
+    for (const [, to] of s.rename?.moves ?? []) {
+      if (store.isDirectory(projectId, branch, to) && !under(to).length) { try { store.deleteFile(projectId, branch, to); } catch { /* kept */ } }
+    }
     if (restored.length) refreshBranchDocsFromDisk(projectId, branch, restored);
-    return { restored, skipped };
+    return { restored, skipped, ...(s.rename ? { rename: s.rename } : {}) }; // Galley: V2 rename
   });
 }

@@ -114,7 +114,7 @@ test.describe('source offer', () => {
   // deployment is out of compliance, not just the UI.
   test('the home screen links to the source and the license', async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByTestId('colophon-source')).toHaveAttribute('href', 'https://github.com/trahloff/Aldine');
+    await expect(page.getByTestId('colophon-source')).toHaveAttribute('href', 'https://github.com/Computational-Memory-Lab/laytekz-server'); // Galley: the fork's source
     await expect(page.getByTestId('colophon')).toContainText('AGPL-3.0');
     await expect(page.getByTestId('colophon')).toContainText('Based on Aldine');
     await moreAction(page, 'open-about');

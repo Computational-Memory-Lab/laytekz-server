@@ -404,7 +404,7 @@ check(logAfter.filter((c) => c.author === 'Claude').length === logBefore.filter(
 const batchPatch = (await gitops.commitDiff(p1.id, logAfter[0].hash)).patch;
 check(batchPatch.includes('+A sharper note.') && batchPatch.includes('+The abstract.'), "the Claude commit carries the batch's writes");
 check(!batchPatch.includes('human.tex') && !batchPatch.includes('+A human line'), "the Claude commit carries NONE of the human's pending work");
-const checkpoint = logAfter.find((c) => c.message === 'aldine: autosave');
+const checkpoint = logAfter.find((c) => c.message === 'laytekz: autosave');
 check(checkpoint !== undefined && logAfter.indexOf(checkpoint) === 1, "the human's pending edit to a batch path was checkpointed as an autosave first");
 check((await gitops.commitDiff(p1.id, checkpoint.hash)).patch.includes('+A human line'), 'the checkpoint holds the human line');
 check((await gitops.commitDiff(p1.id, checkpoint.hash)).patch.includes('notes.tex') && !(await gitops.commitDiff(p1.id, checkpoint.hash)).patch.includes('human.tex'), 'the checkpoint covers only the batch paths; other files wait for the autosave debounce');
@@ -562,7 +562,7 @@ check((await gitops.autoCommit(p1.id, 'main')).committed === false || !(await gi
   check(dlog[0].author === 'Claude' && dlog[0].message === 'Add the agent sentence', `the newest commit is the Claude write under its intent (got ${JSON.stringify(`${dlog[0].author}: ${dlog[0].message}`)})`);
   const dpatch = (await gitops.commitDiff(pd.id, dlog[0].hash)).patch;
   check(dpatch.includes('+agent sentence') && !dpatch.includes('+human paragraph two'), "the Claude commit's diff is exactly the agent's delta");
-  check(dlog[1].message === 'aldine: autosave' && dlog[1].author !== 'Claude', `the person's pending paragraph was checkpointed anonymously first (got ${JSON.stringify(`${dlog[1].author}: ${dlog[1].message}`)})`);
+  check(dlog[1].message === 'laytekz: autosave' && dlog[1].author !== 'Claude', `the person's pending paragraph was checkpointed anonymously first (got ${JSON.stringify(`${dlog[1].author}: ${dlog[1].message}`)})`);
   check((await gitops.commitDiff(pd.id, dlog[1].hash)).patch.includes('+human paragraph two'), 'that anonymous checkpoint holds the person\'s paragraph');
   ({ body } = await call('commit', { project: pd.id, message: 'Checkpoint the agent work' }));
   check(body.committed === false && body.recentClaudeCommits[0]?.message === 'Add the agent sentence', `nothing is left for the commit tool; it names the commit that holds the write (got ${JSON.stringify(body)})`);
@@ -1322,7 +1322,7 @@ check(body.ok === true, 'a fresh read of the recreated branch writes');
   const cleanedLog = await gitops.log(p4.id, 'main');
   const cleaned = cleanedLog.find((c) => c.author === 'Claude' && /Tighten/.test(c.message));
   check(cleaned !== undefined && cleaned.message === 'Tighten the abstract[31m now', `the commit subject is the message minus control characters, CR as a space (got ${JSON.stringify(cleaned?.message)})`);
-  check(cleanedLog[0].message === 'aldine: autosave' && (await gitops.commitDiff(p4.id, cleanedLog[0].hash)).stat.includes('human.tex'), 'the anonymous sweep after it still commits the person\'s file');
+  check(cleanedLog[0].message === 'laytekz: autosave' && (await gitops.commitDiff(p4.id, cleanedLog[0].hash)).stat.includes('human.tex'), 'the anonymous sweep after it still commits the person\'s file');
   // The log parser splits on delimiters a subject cannot carry: a message
   // shaped like simple-git's record separator cannot move itself into the
   // author field the History panel and the session review key on.

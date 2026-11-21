@@ -1,0 +1,12 @@
+
+	Welch Two Sample t-test
+
+data:  extra by group
+t = -1.8608, df = 17.776, p-value = 0.07939
+alternative hypothesis: true difference in means between group 1 and group 2 is not equal to 0
+95 percent confidence interval:
+ -3.3654832  0.2054832
+sample estimates:
+mean in group 1 mean in group 2 
+           0.75            2.33 
+

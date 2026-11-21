@@ -1,5 +1,6 @@
-import { cellSpan, emptyRow, newRow } from './widgets/table';
-import type { CellSpan, TableModel } from './widgets/table';
+// Galley: the model lives in editor/tables (WP14).
+import { cellSpan, emptyRow, newRow } from '../tables/model';
+import type { CellSpan, SpecColumn, TableModel } from '../tables/model';
 
 /**
  * The grid's row and column operations as source edits. Each is the fewest
@@ -8,7 +9,33 @@ import type { CellSpan, TableModel } from './widgets/table';
  * one step. Offsets are relative to the table's start, like the model's.
  */
 
-export type TableOp = 'rowAbove' | 'rowBelow' | 'colLeft' | 'colRight' | 'deleteRow' | 'deleteColumn' | 'mergeRight' | 'split';
+export type TableOp = 'rowAbove' | 'rowBelow' | 'colLeft' | 'colRight' | 'deleteRow' | 'deleteColumn' | 'mergeRight' | 'split'
+  // Galley: moving rows and columns and setting a column's alignment (WP14)
+  | 'rowUp' | 'rowDown' | 'colMoveLeft' | 'colMoveRight' | 'alignLeft' | 'alignCenter' | 'alignRight';
+
+/**
+ * Galley: every operation with its words, in menu order, grouped: the one
+ * list the Visual grid's menu, the Source palette entries and the table
+ * button's "Rows and columns" (WP18) are built from. `group: 'align'` items
+ * form a submenu.
+ */
+export const TABLE_OPS: ReadonlyArray<{ op: TableOp; label: string; group: 'insert' | 'merge' | 'move' | 'align' | 'delete' }> = [
+  { op: 'rowAbove', label: 'Insert row above', group: 'insert' },
+  { op: 'rowBelow', label: 'Insert row below', group: 'insert' },
+  { op: 'colLeft', label: 'Insert column left', group: 'insert' },
+  { op: 'colRight', label: 'Insert column right', group: 'insert' },
+  { op: 'mergeRight', label: 'Merge with the cell on the right', group: 'merge' },
+  { op: 'split', label: 'Split the merged cell', group: 'merge' },
+  { op: 'rowUp', label: 'Move row up', group: 'move' },
+  { op: 'rowDown', label: 'Move row down', group: 'move' },
+  { op: 'colMoveLeft', label: 'Move column left', group: 'move' },
+  { op: 'colMoveRight', label: 'Move column right', group: 'move' },
+  { op: 'alignLeft', label: 'Left', group: 'align' },
+  { op: 'alignCenter', label: 'Centered', group: 'align' },
+  { op: 'alignRight', label: 'Right', group: 'align' },
+  { op: 'deleteRow', label: 'Delete row', group: 'delete' },
+  { op: 'deleteColumn', label: 'Delete column', group: 'delete' },
+];
 
 export interface Change { from: number; to: number; insert: string }
 
@@ -81,8 +108,86 @@ export function unavailable(model: TableModel, op: TableOp, r: number, c: number
       return cell.raw || next.raw ? 'One of these cells has a comment or a line break: merge them in the source.' : null;
     }
     case 'split': return cellSpan(cell) > 1 ? null : 'This cell is not merged.';
+    // Galley: the new operations (WP14)
+    case 'rowUp': case 'rowDown': {
+      const other = model.rows[op === 'rowUp' ? r - 1 : r + 1];
+      if (!other) return op === 'rowUp' ? 'This is the table\'s first row.' : 'This is the table\'s last row.';
+      return row.some((x) => x.raw) || other.some((x) => x.raw) ? 'One of these rows has a comment or a line break: move it in the source.' : null;
+    }
+    case 'colMoveLeft': case 'colMoveRight': {
+      if (!specMapped(model)) return 'Change this table\'s columns in the source: its column spec does not list each column once.';
+      const g = cellStarts(row)[c];
+      const h = op === 'colMoveLeft' ? g - 1 : g + cellSpan(cell);
+      if (cellSpan(cell) > 1) return 'This cell is merged: split it before moving its column.';
+      if (h < 0 || h >= model.cols) return op === 'colMoveLeft' ? 'This is the table\'s first column.' : 'This is the table\'s last column.';
+      const [a, b] = [Math.min(g, h), Math.max(g, h)];
+      for (const rw of model.rows) {
+        const ka = cellCovering(rw, a);
+        const kb = cellCovering(rw, b);
+        if ((ka >= 0 && cellSpan(rw[ka]) > 1) || (kb >= 0 && cellSpan(rw[kb]) > 1)) return 'A merged cell covers one of these columns: move them in the source.';
+        if ((ka >= 0 && rw[ka].raw) || (kb >= 0 && rw[kb].raw)) return 'A cell in these columns has a comment or a line break: move them in the source.';
+      }
+      return null;
+    }
+    case 'alignLeft': case 'alignCenter': case 'alignRight': {
+      if (!specMapped(model)) return 'Change this table\'s alignment in the source: its column spec does not list each column once.';
+      const g = cellStarts(row)[c];
+      const sc = model.specColumns![g];
+      if (!sc || letterAt(sc) === null) return 'This column sets its width or format: change it in the source.';
+      return sc.letter === ALIGN_LETTER[op] ? `This column is already ${ALIGN_WORD[op]}.` : null;
+    }
     default: return null;
   }
+}
+
+const ALIGN_LETTER: Record<string, string> = { alignLeft: 'l', alignCenter: 'c', alignRight: 'r' };
+const ALIGN_WORD: Record<string, string> = { alignLeft: 'left-aligned', alignCenter: 'centered', alignRight: 'right-aligned' };
+
+/** Where a spec column's l, c or r letter is written (after its `>{…}`, before its `<{…}`), or null for any other column type. */
+function letterAt(sc: SpecColumn): number | null {
+  if (!/^[lcr]$/.test(sc.letter)) return null;
+  let end = sc.text.length;
+  for (let m = /\s*<\{[^{}]*\}$/.exec(sc.text.slice(0, end)); m; m = /\s*<\{[^{}]*\}$/.exec(sc.text.slice(0, end))) end -= m[0].length;
+  return sc.text[end - 1] === sc.letter ? sc.from + end - 1 : null;
+}
+
+/** Rows `r` and `r2` trade places: their cells' text moves; the rules, comments and `\\` between them stay. */
+function swapRows(model: TableModel, src: string, r: number, r2: number): Change[] {
+  const span = (row: CellSpan[]) => ({ from: row[0].from, to: row[row.length - 1].to });
+  const a = span(model.rows[r]);
+  const b = span(model.rows[r2]);
+  return [
+    { from: a.from, to: a.to, insert: src.slice(b.from, b.to) },
+    { from: b.from, to: b.to, insert: src.slice(a.from, a.to) },
+  ];
+}
+
+/** `text` written where `cell` is: an empty cell takes spaces from its separators. */
+function putIn(src: string, cell: CellSpan, text: string): Change {
+  const pad = cell.from === cell.to && text ? cellPadding(src[cell.from - 1], src[cell.to]) : { lead: '', trail: '' };
+  return { from: cell.from, to: cell.to, insert: `${pad.lead}${text}${pad.trail}` };
+}
+
+/** Grid columns `a` and `a + 1` trade places, in the spec and in every row (a short row's last cell moves one column right). */
+function swapColumns(model: TableModel, src: string, a: number): Change[] {
+  const sc = model.specColumns!;
+  const changes: Change[] = [
+    { from: sc[a].from, to: sc[a].to, insert: sc[a + 1].text },
+    { from: sc[a + 1].from, to: sc[a + 1].to, insert: sc[a].text },
+  ];
+  for (const row of model.rows) {
+    const ka = cellCovering(row, a);
+    const kb = cellCovering(row, a + 1);
+    if (ka < 0) continue;
+    if (kb < 0) {
+      // only column a is written: it becomes empty and its text goes after a new &
+      const cell = row[ka];
+      if (cell.text) changes.push({ from: cell.from, to: cell.to, insert: `& ${cell.text}` });
+      continue;
+    }
+    changes.push(putIn(src, row[ka], row[kb].text), putIn(src, row[kb], row[ka].text));
+  }
+  return changes;
 }
 
 /** A new row of empty cells above row `r`, on a line of its own where row `r` starts one. */
@@ -237,6 +342,15 @@ export function tableEdit(model: TableModel, src: string, op: TableOp, r: number
     case 'deleteColumn': return { changes: deleteColumn(model, src, gs), focus: { r, g: Math.min(gs, model.cols - 2) } };
     case 'mergeRight': return { changes: mergeRight(model, src, r, c), focus: { r, g: gs } };
     case 'split': return { changes: split(model, r, c), focus: { r, g: gs } };
+    // Galley: the new operations (WP14)
+    case 'rowUp': return { changes: swapRows(model, src, r, r - 1), focus: { r: r - 1, g: gs } };
+    case 'rowDown': return { changes: swapRows(model, src, r, r + 1), focus: { r: r + 1, g: gs } };
+    case 'colMoveLeft': return { changes: swapColumns(model, src, gs - 1), focus: { r, g: gs - 1 } };
+    case 'colMoveRight': return { changes: swapColumns(model, src, gs), focus: { r, g: gs + 1 } };
+    case 'alignLeft': case 'alignCenter': case 'alignRight': {
+      const at = letterAt(model.specColumns![gs])!;
+      return { changes: [{ from: at, to: at + 1, insert: ALIGN_LETTER[op] }], focus: { r, g: gs } };
+    }
   }
 }
 

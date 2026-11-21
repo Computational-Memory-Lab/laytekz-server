@@ -1,8 +1,9 @@
 import type { LogEntry } from '../api';
+import { isAgentAuthor } from './agentReview'; // Galley: V2 (WP42): Claude and Codex
 
 /**
  * - `checkpoint`: a commit a person named (Save in History, a commit message);
- * - `agent`: Claude's;
+ * - `agent`: an agent's (Claude's or Codex's);
  * - `autosave`: the edit debounce's, which no one named;
  * - `system`: one Aldine wrote and titled for a person's action (a merge, a
  *   replace, an undo, a deletion, the save before a branch).
@@ -15,11 +16,12 @@ export type HistoryRow =
   | { kind: 'commit'; view: CommitView }
   | { kind: 'autosaves'; key: string; views: CommitView[]; files: string[]; fileCount: number };
 
-/** gitops.AGENT_COMMIT_AUTHOR */
-const AGENT = 'Claude';
+/** Galley: V2 (WP42). The prefixes of the subjects the server writes for
+ *  itself: the product's, and upstream's in projects made before. */
+const SERVER_PREFIXES = ['laytekz: ', 'aldine: '];
 
 /** Subjects Aldine writes under its own `aldine:` prefix, in words. */
-const PREFIXED: Array<[RegExp, (m: RegExpExecArray) => string]> = [
+const PREFIXED: Array<[RegExp, (m: RegExpExecArray, e: LogEntry) => string]> = [
   [/^autosave( on shutdown)?$/, () => 'Autosave'],
   [/^checkpoint before branching$/, () => 'Saved before starting a branch'],
   [/^checkpoint before merge$/, () => 'Saved before merging'],
@@ -28,7 +30,7 @@ const PREFIXED: Array<[RegExp, (m: RegExpExecArray) => string]> = [
   [/^import assets$/, () => 'Imported the images and other files'],
   [/^publish to (.+)$/, (m) => `Saved before publishing to ${m[1]}`],
   [/^sync Zotero library into (.+)$/, (m) => `Synced the Zotero library into ${m[1]}`],
-  [/^agent edit$/, () => 'Claude’s edit'],
+  [/^agent edit$/, (_m, e) => `${isAgentAuthor(e.author) ? e.author : 'Claude'}’s edit`], // Galley: V2 (WP42)
 ];
 
 /** Subjects Aldine writes for a person's action, unprefixed. */
@@ -41,7 +43,7 @@ const SYSTEM = [
   /^Redo “.*”$/,
   /^Undo the project-wide (replace|delete)$/,
   /^Undo the deletion of .+$/,
-  /^Revert (Claude’s edits|agent changes)$/,
+  /^Revert ((Claude|Codex)’s edits|agent changes)$/, // Galley: V2 (WP42)
   /^Revert ".*"$/,
   /^Local changes before pull$/,
   /^Save before switching branch$/,
@@ -62,19 +64,22 @@ function isDeletion(e: LogEntry): boolean {
 
 export function describeCommit(entry: LogEntry): CommitView {
   const m = entry.message;
-  if (m.startsWith('aldine: ')) {
-    const rest = m.slice('aldine: '.length);
+  // Galley: V2 (WP42): either prefix; any agent.
+  const agent = isAgentAuthor(entry.author);
+  const prefix = SERVER_PREFIXES.find((p) => m.startsWith(p));
+  if (prefix) {
+    const rest = m.slice(prefix.length);
     for (const [re, words] of PREFIXED) {
       const hit = re.exec(rest);
       if (hit) {
-        const title = words(hit);
-        const kind: CommitKind = entry.author === AGENT ? 'agent' : title === 'Autosave' ? 'autosave' : title === 'Checkpoint' ? 'checkpoint' : 'system';
+        const title = words(hit, entry);
+        const kind: CommitKind = agent ? 'agent' : title === 'Autosave' ? 'autosave' : title === 'Checkpoint' ? 'checkpoint' : 'system';
         return { entry, kind, title };
       }
     }
-    return { entry, kind: entry.author === AGENT ? 'agent' : 'system', title: rest ? rest[0].toUpperCase() + rest.slice(1) : m };
+    return { entry, kind: agent ? 'agent' : 'system', title: rest ? rest[0].toUpperCase() + rest.slice(1) : m };
   }
-  if (entry.author === AGENT) return { entry, kind: 'agent', title: m };
+  if (agent) return { entry, kind: 'agent', title: m };
   if (SYSTEM.some((re) => re.test(m)) || isDeletion(entry)) return { entry, kind: 'system', title: m };
   return { entry, kind: 'checkpoint', title: m };
 }

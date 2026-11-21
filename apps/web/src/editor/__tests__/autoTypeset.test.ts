@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   autoTypesetDelay, electTypesetter, shouldAdoptRun, cancelsArmedTypeset,
   LOCAL_AUTO_TYPESET_MS, AGENT_AUTO_TYPESET_MS, type TypesetPeer,
+  reconnectWatch, runSeesLocalEdits, isNetworkFailure, retypesetOnReconnect, // Galley: V2 integrator
 } from '../autoTypeset';
 
 describe('autoTypesetDelay', () => {
@@ -91,5 +92,103 @@ describe('cancelsArmedTypeset', () => {
   });
   it('keeps it when the last keystroke may not have reached the server yet', () => {
     expect(cancelsArmedTypeset(2_900, 3_000)).toBe(false);
+  });
+});
+
+// Galley: V2 integrator: the typeset after a reconnection
+describe('reconnectWatch', () => {
+  const up = { loaded: true, connected: true, online: true, unsynced: false };
+  const down = { ...up, connected: false };
+
+  it('answers once when the link returns after a loss, not on the first connection', () => {
+    const w = reconnectWatch();
+    expect(w('a', { ...up, loaded: false, connected: false })).toBe(false);
+    expect(w('a', up)).toBe(false);
+    expect(w('a', down)).toBe(false);
+    expect(w('a', up)).toBe(true);
+    expect(w('a', up)).toBe(false);
+    expect(w('a', { ...up, unsynced: true })).toBe(false);
+  });
+
+  it('answers again for each later loss, never twice for one', () => {
+    const w = reconnectWatch();
+    w('a', up);
+    w('a', down); w('a', down);
+    expect(w('a', up)).toBe(true);
+    w('a', { ...up, online: false });
+    expect(w('a', up)).toBe(true);
+  });
+
+  it('waits until the edits made meanwhile have reached the server', () => {
+    const w = reconnectWatch();
+    w('a', up);
+    w('a', down);
+    expect(w('a', { ...up, unsynced: true })).toBe(false);
+    expect(w('a', up)).toBe(true);
+  });
+
+  it('counts a page opened offline as a loss', () => {
+    const w = reconnectWatch();
+    expect(w('a', { loaded: false, connected: false, online: false })).toBe(false);
+    expect(w('a', up)).toBe(true);
+  });
+
+  it('does not take a new file connecting for a return, but ends a loss that began on the last one', () => {
+    const w = reconnectWatch();
+    w('a', up);
+    expect(w('b', down)).toBe(false);
+    expect(w('b', up)).toBe(false);
+    w('b', down);
+    w('c', { ...down, loaded: false });
+    expect(w('c', up)).toBe(true);
+  });
+});
+
+describe('runSeesLocalEdits', () => {
+  it('needs the link up and every edit confirmed', () => {
+    expect(runSeesLocalEdits({ loaded: true, connected: true, online: true, unsynced: false })).toBe(true);
+    expect(runSeesLocalEdits({ loaded: true, connected: true, online: true, unsynced: true })).toBe(false);
+    expect(runSeesLocalEdits({ loaded: true, connected: false, online: true, unsynced: false })).toBe(false);
+    expect(runSeesLocalEdits({ loaded: true, connected: true, online: false, unsynced: false })).toBe(false);
+  });
+  it('is true with no open document', () => {
+    expect(runSeesLocalEdits(null)).toBe(true);
+  });
+});
+
+describe('isNetworkFailure', () => {
+  it('names no answer and the gateway statuses, not a refusal or a broken document', () => {
+    for (const s of [0, 502, 503, 504]) expect(isNetworkFailure(s)).toBe(true);
+    for (const s of [400, 401, 403, 404, 409, 422, 500, undefined]) expect(isNetworkFailure(s)).toBe(false);
+  });
+});
+
+describe('retypesetOnReconnect', () => {
+  const base = { auto: true, hasTex: true, armed: false, running: false, runSees: true, networkFailed: false, lastLocalEditAt: 1_000, coveredAt: 2_000 };
+
+  it('typesets after a typeset that could not reach the server', () => {
+    expect(retypesetOnReconnect({ ...base, networkFailed: true })).toBe(true);
+  });
+
+  it('typesets when this tab edited after the newest run that saw its edits', () => {
+    expect(retypesetOnReconnect({ ...base, lastLocalEditAt: 3_000 })).toBe(true);
+  });
+
+  it('does nothing when the preview is current', () => {
+    expect(retypesetOnReconnect(base)).toBe(false);
+  });
+
+  it('respects the auto-typeset setting and a project with no .tex', () => {
+    expect(retypesetOnReconnect({ ...base, networkFailed: true, auto: false })).toBe(false);
+    expect(retypesetOnReconnect({ ...base, networkFailed: true, hasTex: false })).toBe(false);
+  });
+
+  it('leaves it to a timer that will typeset anyway', () => {
+    expect(retypesetOnReconnect({ ...base, networkFailed: true, armed: true })).toBe(false);
+  });
+
+  it('queues behind a running typeset only when that run started without the link', () => {
+    expect(retypesetOnReconnect({ ...base, networkFailed: true, running: true, runSees: true })).toBe(false);
+    expect(retypesetOnReconnect({ ...base, running: true, runSees: false })).toBe(true);
   });
 });

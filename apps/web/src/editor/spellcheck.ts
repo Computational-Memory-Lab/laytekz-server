@@ -42,7 +42,13 @@ const NAME_ARGUMENT = [
   'url', 'newcommand', 'renewcommand', 'providecommand', 'newenvironment', 'renewenvironment', 'DeclareMathOperator',
   'setlength', 'addtolength', 'setcounter', 'newcounter', 'pagestyle', 'thispagestyle', 'color', 'textcolor', 'colorbox',
   'lstinputlisting', 'subfile', 'graphicspath', 'hypersetup', 'geometry', 'newtheorem', 'bibitem', 'cline', 'multicolumn', 'multirow',
+  // Galley: V2 (WP20) link commands (\href's address is covered by the ref pattern; its text stays prose).
+  'nolinkurl', 'doi', 'orcidlink',
 ].join('|');
+
+/** Galley: V2 (WP20) bare web and mail addresses and DOIs: no dictionary knows them, and a link's
+ *  right-click menu should not lose spelling suggestions to them. */
+const BARE_LINK = '(?:https?://|mailto:|www\\.)[^\\s{}<>"]+|\\b(?:doi|arXiv):\\s?[^\\s{}<>"]+';
 
 const UNSPELLED = new RegExp([
   `\\\\begin\\{(${CODE_ENVS})\\}[\\s\\S]*?\\\\end\\{\\1\\}`,
@@ -53,6 +59,7 @@ const UNSPELLED = new RegExp([
   '\\\\\\[[\\s\\S]*?\\\\\\]',
   `\\\\(?:${NAME_ARGUMENT})\\*?(?:\\s*\\[[^\\]]*\\])*\\s*\\{[^{}]*\\}`,
   '\\\\(?:[a-zA-Z@]+\\*?|.)',
+  BARE_LINK, // Galley: V2 (WP20)
 ].join('|'), 'g');
 
 /**

@@ -9,7 +9,7 @@ import type { MenuEntry } from './Menu';
  * shortcuts are left out (there is no keyboard to press them with) unless
  * they are `details`, and a submenu's items are listed in its place.
  */
-export default function ActionSheet({ label, title, items, onClose, testId, primaryId, details, keyboard = false }: {
+export default function ActionSheet({ label, title, items, onClose, testId, primaryId, details, keyboard = false, children }: {
   label: string;
   title?: string | null;
   items: MenuEntry[];
@@ -21,6 +21,8 @@ export default function ActionSheet({ label, title, items, onClose, testId, prim
   details?: boolean;
   /** Opened with a key: focus goes onto the first row. Opened by touch, onto the sheet itself. */
   keyboard?: boolean;
+  /** Galley: V2 rows drawn by components (the phone.moreSheet slot), after the items. */
+  children?: ReactNode;
 }) {
   const rows: ReactNode[] = [];
   const flat = items.flatMap((e) => (e.kind === 'submenu' ? e.items : [e]));
@@ -42,6 +44,8 @@ export default function ActionSheet({ label, title, items, onClose, testId, prim
     }
     if (e.kind === 'submenu') return;
     if (sep) rows.push(sep);
+    // Galley: V2 a custom row (a slot item) is the component's own markup.
+    if (e.kind === 'custom') { rows.push(<div key={e.id} className="action-sheet__custom" data-testid={e.testId}>{e.render}</div>); return; }
     rows.push(
       <button
         key={e.id}
@@ -68,6 +72,7 @@ export default function ActionSheet({ label, title, items, onClose, testId, prim
       <div className="action-sheet">
         {title && <div className="action-sheet__header" data-testid={testId ? `${testId}-title` : undefined}>{title}</div>}
         {rows}
+        {children}
         <button type="button" className="action-sheet__item action-sheet__cancel" onClick={onClose} data-testid={testId ? `${testId}-cancel` : undefined}>Cancel</button>
       </div>
     </Modal>,

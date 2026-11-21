@@ -322,6 +322,147 @@ they matter, so the fork closes them in the code. Fork hunks carry
   (Cloudflare: about 100 s), so people see "Typesetting was stopped: this
   server answers a typeset within N s …" instead of the proxy's error page.
 
+## 7. V2 foundations (wave 0)
+
+- **What:** the plumbing Laytekz 2 features plug into (branch `v2`, tag
+  `v2-wave-0`). Nothing a user sees changes yet: every new setting defaults to
+  what V1 shows, the context menus open only when a feature offers items, and
+  the feature modules are stubs except the interim word count, the interim
+  PDF download button and the e2e probe. The plan is `v2-planning/v2-plan.md`
+  beside this repository; `docs/galley-v2/README.md` records the contract
+  decisions (D1–D18) and the working rules, and `docs/galley-v2/WP01.md` …
+  `WP09.md` hold each package's full notes (files, marked hunks, deviations,
+  tests). This section is the summary a rebase needs.
+- **New files (no marker needed):**
+  - web: `features/**` (types, manifest, host, page context, events, one
+    directory per feature id), `settings/**` (types, registry, store, codecs,
+    account sync, apply, URLs, capabilities client), `keys/**`,
+    `commands/**`, `contextmenu/**`, `slots/**`, `editor/core/**` (feature
+    host, language/brackets/completion extraction, editor settings, key
+    chains, mod-click, auto-edit core, notices, hooks), `editor/texContext/**`,
+    `latex/vocab.ts`, `pages/Settings.tsx`, `components/settings/**`,
+    `util/desktop.ts`;
+  - server: `features/**` (types, manifest, host, route kit, account
+    preferences, project settings, capabilities, one `server.ts` per feature
+    id), `latex/vocab.ts` (byte-identical to the web copy);
+  - e2e: `tests/mocks/*.mjs` (the mock router's modules), specs `202`–`207`;
+  - tooling: `scripts/v2/**`, `docs/galley-v2/**`.
+- **Server hunks in upstream files** (all `Galley: V2`):
+  - `app.ts`: `await registerFeatures(app)` right after `registerRoutes`.
+  - `routes.ts`: `publicMeta` filters `ext` through `publicExt` (absent when no
+    visible key is set, so replies stay byte-identical to V1); exports
+    `reqUser`, `reqAuthor`, `requireMember`, `requireOwner`,
+    `allowTokenWrite`, `allowViewerWrite`; `viewerMay` accepts feature viewer
+    writes; `/api/references/search` needs a sign-in when accounts are on.
+  - `store.ts`: `copyProject` copies the `ext` keys marked `copyWithProject`.
+  - `db/types.ts`: `ProjectMeta.ext`.
+  - `collab.ts`: `branchChangeEvents` fired from `markPathsChanged` and
+    `markTreeChanged`; doc-load hooks in `onLoadDocument`; updates that touch
+    only side maps skip `noteEdit`; `dropDoc(name, keepSnapshot)`; the
+    primitives section at the end (`flushBranchDocsHashed`, `applySpansToDoc`,
+    `moveDocState`, `copyDocState`, `signalBranch`, `registerDocLoadHook`).
+  - `privacy.ts`: "What is stored" names the settings kept in the account.
+- **Web hunks in upstream files** (all `Galley:`):
+  - `index.html`: the pre-paint also applies the interface size, contrast and
+    motion settings; theme logic unchanged ("Match system" by default).
+  - `api.ts`: `apiRequest`, and the session notifier (`sessionUser`,
+    `onSessionUser`) fed by `req()`'s 401 branch, `me`, `login`, `register`,
+    `logout`.
+  - `theme.ts`: every export kept, storage and painting delegated to the
+    settings store and `settings/apply.ts`.
+  - `theme.css`, `app.css`, `home.css`: the V2 tokens (`--editor-*`,
+    `--visual-*`, `--auto-edit-flash`, the `--z-*` scale), an attribute copy
+    (`:where([data-motion=reduce])`, `:where([data-contrast=more])`) after
+    every reduced-motion and contrast media block, the editor typography and
+    ligature rules, and PDF dark mode.
+  - `editor/visual/theme.ts`: Visual's size and width read `--visual-font-size`
+    and `--visual-width` (fallbacks: today's values).
+  - `util/useMediaQuery.ts`: `prefersReducedMotion()` honours `data-motion`;
+    `useReducedMotion()`.
+  - `util/shortcuts.ts`: every V1 export kept, delegating to `keys/registry.ts`
+    (the comment chord stays ⇧⌘C).
+  - `components/Menu.tsx`: `openMenu()` for non-React hosts, and a `custom`
+    entry kind drawn by a component (the `home.accountMenu` slot).
+  - `components/ActionSheet.tsx`: a `custom` row and `children` after the rows
+    (the `phone.moreSheet` slot).
+  - `components/FileTree.tsx`: `onRename(from, to, via?)` says whether a row
+    was dragged.
+  - `components/CodePane.tsx`: the editor host (feature compartments outside
+    the mode compartment, the input core installed once, `undoBoundary` in
+    every mode, the editor-setting compartments where V1 had each extension,
+    `afterFormat` inside Format document's undo step, `citeCommandFor` for a
+    new citation, a re-measure after a typography setting changes), handle
+    `view()`, prop `featureHost`.
+  - `components/PdfPane.tsx`: handle `pdf()`/`textSelection()`, selection
+    reports and the PDF app menu, prop `featureHost`.
+  - `editor/visual/index.ts`: `widgetClick` yields to a mod-click the arbiter
+    (`isModClick`, `modClickTargetAt`) would follow. `editor/visual/history.ts`:
+    `undoBoundaryFrom`, `closeUndoStep`. `editor/visual/{decorations,html2latex,clipboard}.ts`:
+    `export` added to existing tables only.
+  - `pages/Editor.tsx`: the page context and events, all thirteen slots, feature
+    commands and page keys, read-only rules, the rename interceptors,
+    keyed branch signals (`settings`, `moves`), `data-perch` on the three
+    header spacers, the V1 preferences read through `useSetting`, the word
+    count and download button moved into `features/wordcount` and
+    `features/outputs` (same markup), and settings as a route over the
+    mounted editor (`/p/:id/settings/<section>`) in place of the dialog.
+  - `pages/Home.tsx`, `components/home/HomeToolbar.tsx`, `main.tsx`: `/settings/*`
+    over the project list, a Settings… item, the `home.toolbar` and
+    `home.accountMenu` slots, `startSettings()`, the settings-event bridge,
+    the feature manifest loaded at idle.
+  - `editor/branchSignal.ts`: `onSignal(key, fn)`. `editor/leaveGuard.ts`:
+    `samePage`, so the editor and its settings route are one page.
+  - `components/{ProjectSettings,AccountSettings}.tsx`: their parts exported
+    for the settings page; both dialogs render the same DOM as before.
+- **e2e hunks:** `tests/mock-zotero.mjs` is a router over `tests/mocks/*.mjs`
+  (byte-identical answers); `playwright.config.ts` passes the V2 upstream
+  variables (README D16); `fixtures.ts` sets
+  `aldine.settings.testDefaults=automatic-off` in every browser context;
+  `tests/helpers.ts` gains `openProjectSettings`, `closeSettings`,
+  `openSettingsPage`; spec 27 expects Match system.
+- **Privacy:** account-scope settings are stored on this server only, in the
+  `connections` row (user, `laytekz-preferences`), at most 300 keys and 32 KB,
+  written by a signed-in browser session only and deleted with the account;
+  turning off "Keep my settings in my account" keeps them in the browser.
+  Project settings live in `ProjectMeta.ext`; only declared,
+  `clientVisible` keys leave the server, and no secret may ever be stored
+  there (a V1 server would send `ext` unfiltered). `GET /api/capabilities`
+  tells any caller only what the sign-in page and OAuth discovery already
+  show. New browser keys: `aldine.<setting id>` for new settings,
+  `aldine.settings{Owner,Base,Pending,Backup}`, `aldine.typing.noticesShown`.
+  No new outbound host.
+- **Environment:** none new. `ALDINE_TEST_HOOKS=1` (test only, as before) also
+  turns on the server probe feature; production keeps it unset.
+- **Rebase note:** V1-hot files touched here are `routes.ts`, `app.ts`,
+  `collab.ts`, `store.ts`, `index.html`, `api.ts`, `Editor.tsx`,
+  `CodePane.tsx`. Re-apply each `Galley: V2` hunk on V1's text (plan §4.4).
+
+## 8. Page-1 thumbnails drawn in the browser
+
+- **What:** the Projects page shows page 1 of each project's typeset PDF
+  although the compiler renders no thumbnails here (`ALDINE_THUMBNAILS=0`, no
+  PDF rasterizer on the server, by decision). After a successful typeset of
+  the main document has stayed on screen about 4 s, the editor draws page 1
+  with pdf.js (512 px wide, at most 1536 high, JPEG quality 0.75) in idle
+  time and sends it to `PUT /api/projects/:id/thumbnail?branch=…&pdfSize=…`.
+  Once per PDF per tab; never for a stale or failed run, a draft that owes a
+  full run, or someone who can only view; failures are silent.
+- **Where:** `apps/server/src/thumbnail-upload.ts` (new) and one registration
+  line in `routes.ts`; `apps/web/src/util/thumbUpload.ts` (new) and one
+  effect in `PdfPane.tsx`.
+- **Server rules:** the global guard's edit check (viewers, access tokens,
+  showcases refused) and the trash; a JPEG by its markers, 64 to 1024 by 64
+  to 2048 pixels, at most 512 KB (route body limit 600 KB); 409 when the
+  branch has no PDF or its size differs from `pdfSize`; 204 when the sidecar
+  already describes the PDF on disk; one write per project per 10 s (429).
+  The files are the compiler's (`.<base>.thumb.jpg`, then `.thumb.json` with
+  `pdf: {size, mtimeMs}` from the server's own stat), each written to a temp
+  file and renamed, so `GET …/thumbnail` and the list rows serve them as
+  before. The server never decodes the image.
+- **Tests:** `apps/server/test/galley-thumbnail-upload.test.mjs`,
+  `e2e/tests/247-browser-thumbnails.spec.ts` (run with
+  `ALDINE_THUMBNAILS=0` on the compiler).
+
 ## Environment for these patches
 
 | Variable | Side | Value for latex.devon7y.com | Default | Section |
@@ -363,6 +504,17 @@ The fork's own:
   reaching latexmk, request budgets), `compiler-token-app.test.mjs` (the app
   against a mock compiler: the header on every call, `CompilerAuthError`,
   refused stored roots, the deadline).
+
+The V2 foundations (section 7) add `account-prefs`, `account-prefs-off`,
+`project-settings`, `feature-host`, `feature-host-errors`,
+`collab-primitives` and `vocab-twin` (`apps/server/test/`); web unit tests
+beside the code in each new directory's `__tests__` (settings, keys,
+commands, contextmenu, slots, features, editor/core, editor/texContext,
+latex), among them the keybinding collision test
+(`keys/__tests__/collisions.test.ts`) and the keystroke replay harness
+(`editor/core/__tests__/replay.ts`); and e2e specs `202`–`207`, where `206`
+drives the `_probe` feature (localStorage `aldine.e2e.probe=1`) through every
+extension point.
 
 `npm run test -w apps/web` adds `apps/web/src/util/__tests__/source.test.ts`
 and `apps/web/src/__tests__/product.test.ts`. Upstream tests that asserted

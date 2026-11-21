@@ -10,6 +10,10 @@ import { initObservability } from './observability.js';
 import { registerOriginCheck } from './origin-check.js';
 import { registerSourceRoute, stampSource } from './galley-source.js';
 import { PRODUCT_NAME } from './product.js'; // Galley: the product's own name
+import { registerFeatures } from './features/host.js'; // Galley: V2 server feature host
+// Galley: V2 web readiness (WP45): base headers, cache rules, static 404s, app page stamps.
+import { appPagePolicy, isStaticMiss, registerHttpHeaders, sendStaticMiss, stampShell, REVALIDATE } from './http-headers.js';
+import { buildRev } from './features/capabilities.js';
 
 const BASE = config.basePath;
 
@@ -115,8 +119,10 @@ export async function buildApp(): Promise<FastifyInstance> {
   // Galley: first onRequest hook, so a refused cross-origin request never
   // reaches the session lookup (origin-check.ts).
   registerOriginCheck(app);
+  registerHttpHeaders(app); // Galley: V2 (WP45) base headers and cache rules on every response
   await initObservability(app);
   await registerRoutes(app);
+  await registerFeatures(app); // Galley: V2 server features, after the global guards registerRoutes installs
   registerSourceRoute(app);
   // MCP endpoint (agent connector), env-gated. Dynamic import keeps the SDK out
   // of the boot path entirely when the feature is off.
@@ -129,11 +135,16 @@ export async function buildApp(): Promise<FastifyInstance> {
   // Serve the built frontend (production). In dev, Vite serves it and proxies to us.
   const indexFile = path.join(config.webDist, 'index.html');
   if (fs.existsSync(indexFile)) {
-    const indexHtml = renderIndexHtml(fs.readFileSync(indexFile, 'utf8'));
+    // Galley: V2 (WP45) the build revision and absolute preview links are stamped once.
+    const indexHtml = stampShell(renderIndexHtml(fs.readFileSync(indexFile, 'utf8')), { rev: buildRev(), publicUrl: config.publicUrl });
+    // Galley: V2 (WP45) report-only until a week of reports is clean; hashes every inline script of the page.
+    const reportOnlyPolicy = appPagePolicy(indexHtml, config.publicUrl);
     // No page of the app renders inside another page's frame: the OAuth
     // consent page grants account access on a single click.
     const sendIndex = (_req: unknown, reply: FastifyReply) => reply
       .header('content-security-policy', "frame-ancestors 'none'")
+      .header('content-security-policy-report-only', reportOnlyPolicy) // Galley: V2 (WP45)
+      .header('cache-control', REVALIDATE) // Galley: V2 (WP45) a deploy changes the page under the same URL
       .header('x-frame-options', 'DENY')
       .type('text/html').send(stampSource(stampInstance(indexHtml)));
     // The raw index.html never goes on the wire: '/' has its own route, the
@@ -158,6 +169,8 @@ export async function buildApp(): Promise<FastifyInstance> {
       if (/^\/(api|plugins|collab|mcp|__outside-base-path__|\.well-known)(\/|$|\?)/.test(req.url) || /^\/oauth\/(?!authorize(\/|$|\?))/.test(req.url)) {
         return reply.code(404).send({ error: 'not found' });
       }
+      // Galley: V2 (WP45) a missing file (an old lazy chunk, favicon.ico) is never answered with the app page.
+      if (isStaticMiss(req.url)) return sendStaticMiss(reply);
       return sendIndex(req, reply);
     });
   } else {

@@ -124,3 +124,39 @@ describe('a block of cells pasted into a table (vis-6)', () => {
     expect(out).toBe(doc.replace('a & b', '1 & 2'));
   });
 });
+
+// Galley: moving rows and columns and setting a column's alignment (WP14)
+describe('moving rows and columns, and column alignment (F4)', () => {
+  it('moves a row up or down, keeping the rules where they are, in one change set', () => {
+    expect(after(BOOKTABS, 'rowDown', 1, 0)!.doc).toBe(BOOKTABS.replace('a & b \\\\\nc & d', 'c & d \\\\\na & b'));
+    expect(after(BOOKTABS, 'rowUp', 1, 1)!.doc).toBe(BOOKTABS.replace('H1 & H2 \\\\\n\\midrule\na & b', 'a & b \\\\\n\\midrule\nH1 & H2'));
+    expect(after(BOOKTABS, 'rowUp', 1, 1)!.focus).toEqual({ r: 0, g: 1 });
+    expect(after(BOOKTABS, 'rowUp', 0, 0)).toBeNull();
+    expect(after(BOOKTABS, 'rowDown', 2, 0)).toBeNull();
+  });
+
+  it('moves a column left or right in the spec and every row, and refuses next to a merged cell', () => {
+    const doc = '\\begin{tabular}{|l|c|}\n\\hline\na & b \\\\\nc &  \\\\\n\\hline\n\\end{tabular}\n';
+    const moved = after(doc, 'colMoveRight', 0, 0)!;
+    expect(moved.doc).toBe('\\begin{tabular}{|c|l|}\n\\hline\nb & a \\\\\n &  c \\\\\n\\hline\n\\end{tabular}\n');
+    expect(moved.grid).toEqual([['b', 'a'], ['', 'c']]);
+    expect(after(doc, 'colMoveLeft', 0, 1)!.doc).toBe(moved.doc);
+    expect(after(doc, 'colMoveLeft', 0, 0)).toBeNull();
+    const merged = '\\begin{tabular}{lll}\n\\multicolumn{2}{c}{x} & y \\\\\na & b & c \\\\\n\\end{tabular}\n';
+    const s = state(merged);
+    const { model } = table(s);
+    expect(unavailable(model, 'colMoveRight', 1, 0)).toMatch(/merged cell covers/);
+    expect(unavailable(model, 'colMoveRight', 1, 1)).toMatch(/merged cell covers/);
+    expect(unavailable(model, 'colMoveLeft', 1, 2)).toMatch(/merged cell covers/);
+  });
+
+  it('sets a column\'s alignment letter, and refuses paragraph and formatted columns', () => {
+    const doc = '\\begin{tabular}{>{\\bfseries}l|c p{3cm}}\na & b & c \\\\\n\\end{tabular}\n';
+    expect(after(doc, 'alignRight', 0, 0)!.doc).toBe(doc.replace('>{\\bfseries}l|', '>{\\bfseries}r|'));
+    expect(after(doc, 'alignLeft', 0, 1)!.doc).toBe(doc.replace('|c p', '|l p'));
+    const s = state(doc);
+    const { model } = table(s);
+    expect(unavailable(model, 'alignCenter', 0, 1)).toBe('This column is already centered.');
+    expect(unavailable(model, 'alignLeft', 0, 2)).toMatch(/sets its width or format/);
+  });
+});

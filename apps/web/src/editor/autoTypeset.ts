@@ -56,3 +56,71 @@ export function shouldAdoptRun(shownRunId: number | undefined, runId: number | u
   if (busy || runId === undefined) return false;
   return shownRunId === undefined || runId > shownRunId;
 }
+
+// Galley: V2 integrator: one typeset when the connection comes back after a loss (V1 left the preview on "Failed").
+
+/** The parts of the open document's sync state (editor/syncStatus) a reconnection is read from. */
+export interface LinkState { loaded: boolean; connected: boolean; online: boolean; unsynced?: boolean }
+
+/** The document has synced, its socket is up and the browser says it is online. */
+export function linkUp(s: LinkState): boolean {
+  return s.loaded && s.connected && s.online;
+}
+
+/** A typeset starting now sees every edit made in this tab: the link is up and
+ *  the server has confirmed them all. No open document has nothing to miss. */
+export function runSeesLocalEdits(s: LinkState | null): boolean {
+  return !s || (linkUp(s) && !s.unsynced);
+}
+
+/** A typeset request that never reached a working server (no answer, or a
+ *  gateway saying the server is unreachable), not a document that fails. */
+export function isNetworkFailure(status: number | undefined): boolean {
+  return status === 0 || status === 502 || status === 503 || status === 504;
+}
+
+/**
+ * Follows the open document's link, one sync report at a time (`key` names the
+ * pane), and answers true exactly once each time the link comes back after a
+ * loss, as soon as the edits made meanwhile have reached the server. A file's
+ * first connection is not a return unless the browser said it was offline
+ * first; a loss that began on one file ends on the next.
+ */
+export function reconnectWatch(): (key: string, s: LinkState) => boolean {
+  let key: string | null = null;
+  let wasUp = false;
+  let lost = false;
+  return (k, s) => {
+    if (k !== key) { key = k; wasUp = false; }
+    if (!linkUp(s)) {
+      if (wasUp || !s.online) lost = true;
+      return false;
+    }
+    wasUp = true;
+    if (!lost || s.unsynced) return false;
+    lost = false;
+    return true;
+  };
+}
+
+/**
+ * On a reconnection, whether to typeset once: auto-typeset is on, no armed
+ * timer will typeset anyway, and the preview is behind. A run still going is
+ * behind when it started without the link; otherwise the last typeset failed
+ * for want of the server, or this tab edited after the newest run that saw all
+ * its edits started.
+ */
+export function retypesetOnReconnect(i: {
+  auto: boolean;
+  hasTex: boolean;
+  armed: boolean;
+  running: boolean;
+  runSees: boolean;
+  networkFailed: boolean;
+  lastLocalEditAt: number;
+  coveredAt: number;
+}): boolean {
+  if (!i.auto || !i.hasTex || i.armed) return false;
+  if (i.running) return !i.runSees;
+  return i.networkFailed || i.lastLocalEditAt > i.coveredAt;
+}

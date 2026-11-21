@@ -9,6 +9,19 @@ import { publicBase } from '../util.js';
 import { wwwAuthenticate } from '../oauth/metadata.js';
 import { registerTools, loadViewerHtml } from './tools.js';
 import { config } from '../config.js';
+import { AGENT_AUTHORS, AGENT_COMMIT_AUTHOR, runAsAgent, type AgentAuthor } from '../gitops.js'; // Galley: V2 (WP42)
+
+/**
+ * Galley: V2 (WP42). The agent a request speaks for, from `X-Laytekz-Agent`
+ * (the desktop app's agent launcher sends `claude` or `codex`). Only a name
+ * on the allowlist counts, in any case; anything else, or no header, is
+ * Claude, as before. The name labels commits, presence and the review toast,
+ * never what the token may do.
+ */
+export function agentFromHeader(raw: string | string[] | undefined): AgentAuthor {
+  const v = (Array.isArray(raw) ? raw[0] : raw)?.trim().toLowerCase();
+  return AGENT_AUTHORS.find((a) => a.toLowerCase() === v) ?? AGENT_COMMIT_AUTHOR;
+}
 
 /**
  * Streamable HTTP MCP endpoint (POST/GET /mcp), env-gated behind ALDINE_MCP=1.
@@ -90,8 +103,11 @@ export async function registerMcp(app: FastifyInstance): Promise<void> {
       transport.close().catch(() => {});
     });
     try {
-      await server.connect(transport);
-      await transport.handleRequest(req.raw, reply.raw, req.body);
+      // Galley: V2 (WP42): the tools' writes run inside the request's agent scope.
+      await runAsAgent(agentFromHeader(req.headers['x-laytekz-agent']), async () => {
+        await server.connect(transport);
+        await transport.handleRequest(req.raw, reply.raw, req.body);
+      });
     } catch (err) {
       req.log.error({ err }, 'mcp request failed');
       if (!reply.raw.headersSent) {

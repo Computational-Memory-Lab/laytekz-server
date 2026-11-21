@@ -1,8 +1,8 @@
 {
   "id": "zotero",
-  "name": "Zotero",
-  "description": "Native Zotero integration: link your library or a collection, keep a .bib in sync, and insert citations while you write.",
-  "version": "0.1.0",
+  "name": "Libraries",
+  "description": "Zotero and Mendeley: link your library or a folder, keep a .bib in sync, and insert citations while you write.",
+  "version": "0.2.0",
   "entry": "index.js",
   "icon": "❞",
   "slots": ["sidebarPanel"]

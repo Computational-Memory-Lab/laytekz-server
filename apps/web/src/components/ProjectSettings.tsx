@@ -44,7 +44,8 @@ interface Props {
 }
 
 /** Saved on Enter and when the field loses focus; a blank field keeps the name. */
-function YourNameField({ name, onSave }: { name: string; onSave(name: string): void }) {
+// Galley: exported for the settings page (WP07), which shows it without accounts
+export function YourNameField({ name, onSave }: { name: string; onSave(name: string): void }) {
   const [value, setValue] = useState(name);
   useEffect(() => { setValue(name); }, [name]);
   const commit = () => {
@@ -68,7 +69,8 @@ function YourNameField({ name, onSave }: { name: string; onSave(name: string): v
 }
 
 /** Label and explanation on the left, the control in one column on the right. */
-function Row({ label, htmlFor, hint, hintTestId, hintError, children }: { label: string; htmlFor?: string; hint?: ReactNode; hintTestId?: string; hintError?: boolean; children: ReactNode }) {
+// Galley: exported for the settings page (WP07)
+export function Row({ label, htmlFor, hint, hintTestId, hintError, children }: { label: string; htmlFor?: string; hint?: ReactNode; hintTestId?: string; hintError?: boolean; children: ReactNode }) {
   return (
     <div className="settings__row">
       <div className="settings__text">
@@ -81,7 +83,8 @@ function Row({ label, htmlFor, hint, hintTestId, hintError, children }: { label:
 }
 
 /** Click the keys, press new ones; Esc keeps the old ones. */
-function ShortcutRow({ id, label }: { id: ShortcutId; label: string }) {
+// Galley: exported for the settings page (WP07), which embeds these rows
+export function ShortcutRow({ id, label }: { id: ShortcutId; label: string }) {
   const keys = useShortcutLabel(id);
   const [recording, setRecording] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -135,19 +138,17 @@ function ShortcutRow({ id, label }: { id: ShortcutId; label: string }) {
   );
 }
 
-/**
- * The permanent home of the project's compile options (the palette's engine
- * commands and the log dialog's stop-on-error box are shortcuts to the same
- * state). What is stored with the project comes first; what this browser
- * remembers on its own is kept apart. Every change saves on its own; there is
- * no Save button.
- */
-export default function ProjectSettings({ project, files, mainDocs, autoTypeset, vim, spellcheck, spellLang, onToggleSpellcheck, onSetSpellLang, importNote, canConfigure = true, onClose, onRename, onSetRoot, onSetEngine, onSetStopOnFirstError, onSetManualCommits, onToggleAutoTypeset, onToggleVim, focus, readOnly = false, yourName, onSetYourName, viewOnly = false }: Props) {
+// Galley: the rows stored with the project, shared by this dialog and the
+// settings page's "This project" section (WP07, pages/Settings.tsx).
+export type ProjectRowsProps = Pick<Props, 'project' | 'files' | 'mainDocs' | 'importNote' | 'canConfigure' | 'readOnly' | 'viewOnly' | 'onRename' | 'onSetRoot' | 'onSetEngine' | 'onSetStopOnFirstError' | 'onSetManualCommits'> & {
+  /** False where the surrounding page titles the section itself. */
+  heading?: boolean;
+};
+
+// Galley: what is stored with the project, extracted from the dialog below so the settings page (WP07) embeds the same rows
+export function ProjectRows({ project, files, mainDocs, importNote, canConfigure = true, readOnly = false, viewOnly = false, onRename, onSetRoot, onSetEngine, onSetStopOnFirstError, onSetManualCommits, heading = true }: ProjectRowsProps) {
   const [name, setName] = useState(project.name);
-  const appearance = useAppearance();
   const [compiler, setCompiler] = useState<CompilerInfo | null>(null);
-  const shortcutsRef = useRef<HTMLElement>(null);
-  useEffect(() => { if (focus === 'shortcuts') shortcutsRef.current?.scrollIntoView({ block: 'nearest' }); }, [focus]);
   useEffect(() => {
     let live = true;
     api.compilerInfo()
@@ -172,7 +173,103 @@ export default function ProjectSettings({ project, files, mainDocs, autoTypeset,
     committed.current = next;
     onRename(next).catch(() => { committed.current = project.name; setName(project.name); });
   };
-  const close = () => { commitName(); onClose(); };
+  // Galley: the close path is unmounting these rows (the dialog's Escape and Close, the settings page closing)
+  const commitOnLeave = useRef(commitName);
+  commitOnLeave.current = commitName;
+  useEffect(() => () => commitOnLeave.current(), []);
+
+  return (
+    <section className="settings__section" data-testid="settings-this-project">
+      {heading && <div className="menu__label settings__heading">This project</div>}
+      {readOnly ? <p className="settings__hint" data-testid="settings-read-only">A read-only showcase keeps its settings. Make a copy to change them.</p> : !canConfigure && <p className="settings__hint" style={{ margin: '2px 0 4px' }} data-testid="settings-project-locked">{viewOnly ? 'You can view this project, so its settings are not yours to change.' : 'Only the owner and collaborators can change these.'}</p>}
+      <Row label="Name" htmlFor="settings-name">
+        <input
+          id="settings-name"
+          className="input"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onBlur={commitName}
+          onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+          disabled={readOnly || !canConfigure}
+          data-testid="settings-name"
+        />
+      </Row>
+      <Row label="Main document" htmlFor="settings-root-file" hint="The file a typeset starts from">
+        <select
+          id="settings-root-file"
+          className="input"
+          value={project.rootFile}
+          onChange={(e) => onSetRoot(e.target.value)}
+          disabled={readOnly || !canConfigure}
+          data-testid="settings-root-file"
+        >
+          {rootOptions.map((p) => <option key={p} value={p}>{p}</option>)}
+        </select>
+      </Row>
+      <Row label="Compiler" htmlFor="settings-engine" hint={importNote} hintTestId="settings-engine-note">
+        <select
+          id="settings-engine"
+          className="input"
+          value={engine}
+          onChange={(e) => onSetEngine(e.target.value)}
+          disabled={readOnly || !canConfigure}
+          data-testid="settings-engine"
+        >
+          {ENGINES.map((e) => <option key={e.id} value={e.id}>{e.label}</option>)}
+        </select>
+      </Row>
+      <Row label="TeX Live" hint="Set by this server">
+        <span className="settings__value" data-testid="settings-texlive" title="Release and scheme of the compiler this server talks to">{texliveLabel(compiler)}</span>
+      </Row>
+      <Row
+        label="Stop on first error"
+        htmlFor="settings-stop-on-error"
+        hint={project.stopOnFirstError ? 'The run stops at the first error and keeps the previous PDF' : 'The run continues to the end and lists the errors beside the PDF'}
+      >
+        <input
+          id="settings-stop-on-error"
+          type="checkbox"
+          checked={!!project.stopOnFirstError}
+          onChange={(e) => onSetStopOnFirstError(e.target.checked)}
+          disabled={readOnly || !canConfigure}
+          data-testid="settings-stop-on-error"
+        />
+      </Row>
+      <Row
+        label="Commit changes"
+        htmlFor="settings-commit-mode"
+        hint={project.manualCommits ? 'Edits are saved, and wait in History for a commit with your message' : 'Every pause in typing becomes an autosave commit'}
+      >
+        <select
+          id="settings-commit-mode"
+          className="input"
+          value={project.manualCommits ? 'manual' : 'auto'}
+          onChange={(e) => onSetManualCommits(e.target.value === 'manual')}
+          disabled={readOnly || !canConfigure}
+          data-testid="settings-commit-mode"
+        >
+          <option value="auto">Automatically</option>
+          <option value="manual">When I commit</option>
+        </select>
+      </Row>
+    </section>
+  );
+}
+
+/**
+ * The permanent home of the project's compile options (the palette's engine
+ * commands and the log dialog's stop-on-error box are shortcuts to the same
+ * state). What is stored with the project comes first; what this browser
+ * remembers on its own is kept apart. Every change saves on its own; there is
+ * no Save button.
+ */
+// Galley: retired in V2 (WP23): no entry point opens this dialog; the settings page shows ProjectRows. Kept because settings/types.ts types the page's `project` prop from its props.
+export default function ProjectSettings({ project, files, mainDocs, autoTypeset, vim, spellcheck, spellLang, onToggleSpellcheck, onSetSpellLang, importNote, canConfigure = true, onClose, onRename, onSetRoot, onSetEngine, onSetStopOnFirstError, onSetManualCommits, onToggleAutoTypeset, onToggleVim, focus, readOnly = false, yourName, onSetYourName, viewOnly = false }: Props) {
+  const appearance = useAppearance();
+  const shortcutsRef = useRef<HTMLElement>(null);
+  useEffect(() => { if (focus === 'shortcuts') shortcutsRef.current?.scrollIntoView({ block: 'nearest' }); }, [focus]);
+  // Galley: ProjectRows commits a typed name when it unmounts, which closing does
+  const close = onClose;
 
   return (
     <Modal onClose={close} label="Project settings" testId="project-settings" width={560}>
@@ -180,80 +277,8 @@ export default function ProjectSettings({ project, files, mainDocs, autoTypeset,
         <h2>Project settings</h2>
         <p className="modal__sub">Changes save as you make them.</p>
 
-        <section className="settings__section" data-testid="settings-this-project">
-          <div className="menu__label settings__heading">This project</div>
-          {readOnly ? <p className="settings__hint" data-testid="settings-read-only">A read-only showcase keeps its settings. Make a copy to change them.</p> : !canConfigure && <p className="settings__hint" style={{ margin: '2px 0 4px' }} data-testid="settings-project-locked">{viewOnly ? 'You can view this project, so its settings are not yours to change.' : 'Only the owner and collaborators can change these.'}</p>}
-          <Row label="Name" htmlFor="settings-name">
-            <input
-              id="settings-name"
-              className="input"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onBlur={commitName}
-              onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-              disabled={readOnly || !canConfigure}
-              data-testid="settings-name"
-            />
-          </Row>
-          <Row label="Main document" htmlFor="settings-root-file" hint="The file a typeset starts from">
-            <select
-              id="settings-root-file"
-              className="input"
-              value={project.rootFile}
-              onChange={(e) => onSetRoot(e.target.value)}
-              disabled={readOnly || !canConfigure}
-              data-testid="settings-root-file"
-            >
-              {rootOptions.map((p) => <option key={p} value={p}>{p}</option>)}
-            </select>
-          </Row>
-          <Row label="Compiler" htmlFor="settings-engine" hint={importNote} hintTestId="settings-engine-note">
-            <select
-              id="settings-engine"
-              className="input"
-              value={engine}
-              onChange={(e) => onSetEngine(e.target.value)}
-              disabled={readOnly || !canConfigure}
-              data-testid="settings-engine"
-            >
-              {ENGINES.map((e) => <option key={e.id} value={e.id}>{e.label}</option>)}
-            </select>
-          </Row>
-          <Row label="TeX Live" hint="Set by this server">
-            <span className="settings__value" data-testid="settings-texlive" title="Release and scheme of the compiler this server talks to">{texliveLabel(compiler)}</span>
-          </Row>
-          <Row
-            label="Stop on first error"
-            htmlFor="settings-stop-on-error"
-            hint={project.stopOnFirstError ? 'The run stops at the first error and keeps the previous PDF' : 'The run continues to the end and lists the errors beside the PDF'}
-          >
-            <input
-              id="settings-stop-on-error"
-              type="checkbox"
-              checked={!!project.stopOnFirstError}
-              onChange={(e) => onSetStopOnFirstError(e.target.checked)}
-              disabled={readOnly || !canConfigure}
-              data-testid="settings-stop-on-error"
-            />
-          </Row>
-          <Row
-            label="Commit changes"
-            htmlFor="settings-commit-mode"
-            hint={project.manualCommits ? 'Edits are saved, and wait in History for a commit with your message' : 'Every pause in typing becomes an autosave commit'}
-          >
-            <select
-              id="settings-commit-mode"
-              className="input"
-              value={project.manualCommits ? 'manual' : 'auto'}
-              onChange={(e) => onSetManualCommits(e.target.value === 'manual')}
-              disabled={readOnly || !canConfigure}
-              data-testid="settings-commit-mode"
-            >
-              <option value="auto">Automatically</option>
-              <option value="manual">When I commit</option>
-            </select>
-          </Row>
-        </section>
+        {/* Galley: the project's rows live in ProjectRows (shared with the settings page, WP07) */}
+        <ProjectRows project={project} files={files} mainDocs={mainDocs} importNote={importNote} canConfigure={canConfigure} readOnly={readOnly} viewOnly={viewOnly} onRename={onRename} onSetRoot={onSetRoot} onSetEngine={onSetEngine} onSetStopOnFirstError={onSetStopOnFirstError} onSetManualCommits={onSetManualCommits} />
 
         <section className="settings__section" data-testid="settings-this-browser">
           <div className="menu__label settings__heading">This browser</div>

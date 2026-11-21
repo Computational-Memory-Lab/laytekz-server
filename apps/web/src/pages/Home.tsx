@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'; // Galley: V2 lazy settings page
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'; // Galley: V2 settings routes
 import { api, ApiError, ProjectSummary, RemoteInfo, RemoteProviderId, TemplateInfo, TrashedProject } from '../api';
 import { withBase } from '../basePath';
 import { useToast, useToastDismiss } from '../components/Toast';
@@ -9,7 +9,10 @@ import EmailConfirmBanner from '../components/EmailConfirmBanner';
 import InvitationsStrip from '../components/home/InvitationsStrip';
 import ShareModal from '../components/ShareModal';
 import { appearanceCommands } from '../components/Appearance';
-import AccountSettings from '../components/AccountSettings';
+// Galley: V2 account settings are sections of the settings page (/settings/account, WP07), not a dialog.
+import { closeSettings, loadFeatures, requestOpenSettings, usePageKeys } from '../features/host';
+import { interceptProjectRename, isSettingsPath, settingFromHash, settingsSection } from '../features/pageCtx';
+import type { FeatureModule } from '../features/types';
 import { MenuButton, useContextMenu, type MenuEntry } from '../components/Menu';
 import ActionSheet from '../components/ActionSheet';
 import { IconChevronDown, IconPlus } from '../components/Icons';
@@ -39,6 +42,7 @@ import { isMac } from '../platform';
 import { SOURCE_URL } from '../source';
 // Galley: the product's name and credit (product.ts, ProductCredit.tsx).
 import { PRODUCT_NAME } from '../product';
+import { entriesFromPicker, folderName, selectEntries, walkDropped, zipEntries, type FolderEntry } from '../util/folderZip'; // Galley: import a folder
 import { BasedOnAldine, PrivacyLink } from '../components/ProductCredit';
 import {
   HOME_RETURN_KEY, homeHref, isSharedWithMe, trashLosses, matchSentence, matchesQuery, parseShow, parseSort, pdfBranch, pdfOutputPath, projectHref, sectionsOf, SORT_KEY, SORTS,
@@ -54,6 +58,9 @@ const IMPORT_MAX_ZIP_BYTES = IMPORT_MAX_ZIP_MB * 1024 * 1024;
 
 /** The palette's sections before anything is typed: projects first. */
 const PALETTE_GROUPS = ['Projects', 'New', 'Appearance', 'More'];
+
+/** Galley: V2 settings page (WP07), over the project list at /settings/<section>. */
+const SettingsPage = lazy(() => import('./Settings'));
 
 /** Matches .sheet.is-leaving in app.css. */
 const EXIT_MS = 150;
@@ -140,6 +147,12 @@ export default function Home() {
   const compact = useMediaQuery(PHONE);
   const now = useMinuteTick();
   const [params, setParams] = useSearchParams();
+  // Galley: V2 settings routes: /settings/<section> shows the settings page over this list,
+  // which stays mounted (and inert) under it.
+  const route = useLocation();
+  const settingsRoute = isSettingsPath(route.pathname);
+  const coveredRef = useRef(settingsRoute);
+  coveredRef.current = settingsRoute;
   const show: Show = parseShow(params.get('show'), authEnabled);
   // In the address, so Back and the editor's back button return to the same search.
   // The field keeps its own text and the address follows it: typing outruns
@@ -188,18 +201,17 @@ export default function Home() {
 
   const [creating, setCreating] = useState<{ template?: string } | null>(null);
   const [sharing, setSharing] = useState<ProjectSummary | null>(null);
-  const [showAccount, setShowAccount] = useState(false);
-  const [accountFocus, setAccountFocus] = useState<'sign-in' | undefined>();
   // Back from connecting a sign-in method: …/?account=sign-in&connected=<provider>.
+  // Galley: V2 opens the settings page's account section at its sign-in methods
+  // ('#sign-in'), in place of this entry, so Back does not come here again.
   useEffect(() => {
     if (params.get('account') !== 'sign-in' || !user) return;
     const connected = params.get('connected');
     const next = new URLSearchParams(params);
     next.delete('account');
     next.delete('connected');
-    setParams(next, { replace: true });
-    setAccountFocus('sign-in');
-    setShowAccount(true);
+    const search = next.toString();
+    navigate({ pathname: '/settings/account', search: search ? `?${search}` : '', hash: '#sign-in' }, { replace: true });
     const label = connected ? providers.find((p) => p.id === connected)?.label : undefined;
     if (label) toast(`${label} is connected. You can sign in with it from now on.`, 'ok');
   }, [params, user]);
@@ -211,9 +223,10 @@ export default function Home() {
   const [emptying, setEmptying] = useState(false);
   const [startKey, setStartKey] = useState<string | null>(null);
   const [invitesAsked, setInvitesAsked] = useState(0);
-  usePaletteHotkey(useCallback(() => setPaletteOpen((o) => !o), []));
+  usePaletteHotkey(useCallback(() => { if (!coveredRef.current) setPaletteOpen((o) => !o); }, [])); // Galley: not under the settings page
 
   const zipInput = useRef<HTMLInputElement>(null);
+  const folderInput = useRef<HTMLInputElement>(null); // Galley: import a folder
   const startRef = useRef<HTMLUListElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const shelfRef = useRef<HTMLDivElement>(null);
@@ -598,6 +611,10 @@ export default function Home() {
   const rename = async (p: ProjectSummary) => {
     const name = await dialogs.prompt({ title: 'Rename project', value: p.name, confirmLabel: 'Rename' });
     if (name === null || !name.trim() || name.trim() === p.name) return;
+    // Galley: V2 interceptors: a feature may take the rename over; the list is reloaded after it.
+    let modules: readonly FeatureModule[] = [];
+    try { modules = await loadFeatures(); } catch { /* without the feature modules the rename is V1's */ }
+    if ((await interceptProjectRename(modules, { from: p.name, to: name.trim(), projectId: p.id }, null)) === 'handled') { load(); return; } // Galley: V2 (WP29) the project, with no page
     try {
       const updated = await api.patchProject(p.id, { name: name.trim() });
       change((cur) => cur?.map((x) => (x.id === p.id ? { ...x, name: updated.name } : x)) ?? cur);
@@ -788,7 +805,7 @@ export default function Home() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.defaultPrevented) return;
+      if (e.defaultPrevented || coveredRef.current) return; // Galley: not under the settings page
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'z') {
         const last = [...undos.current].pop();
         if (!last || isTyping(e.target) || overlayOpen()) return;
@@ -804,6 +821,22 @@ export default function Home() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+
+  // Galley: a folder is packed into a ZIP in the browser and imported like one.
+  const importFolder = async (entries: FolderEntry[], fallbackName?: string) => {
+    const { keep, skipped } = selectEntries(entries);
+    const name = folderName(keep) ?? fallbackName ?? 'Imported folder';
+    if (!keep.length) { toast(entries.length ? `“${name}” has only hidden or build files to import` : `“${name}” is empty`, 'error'); return; }
+    let zip: File;
+    try {
+      zip = await zipEntries(keep, name);
+    } catch {
+      toast(`Could not read the files in “${name}”`, 'error');
+      return;
+    }
+    if (skipped) toast(`Importing “${name}”: ${keep.length} file${keep.length === 1 ? '' : 's'}, leaving out ${skipped} hidden or build file${skipped === 1 ? '' : 's'}`, 'info');
+    await importFiles([zip]);
+  };
 
   // ---------- drop to import ----------
   const hasFiles = (e: React.DragEvent) => Array.from(e.dataTransfer.types).includes('Files');
@@ -826,6 +859,16 @@ export default function Home() {
       dragDepth.current = 0;
       setDrag(null);
       const files = Array.from(e.dataTransfer.files);
+      // Galley: dropped folders. Their entries must be taken during the event.
+      const dirs = Array.from(e.dataTransfer.items ?? [])
+        .map((it) => it.webkitGetAsEntry?.() ?? null)
+        .filter((en): en is FileSystemDirectoryEntry => !!en && en.isDirectory);
+      if (dirs.length) {
+        void (async () => { for (const d of dirs) await importFolder(await walkDropped(d).catch(() => []), d.name); })();
+        const zips = files.filter((f) => /\.zip$/i.test(f.name));
+        if (zips.length) importFiles(zips);
+        return;
+      }
       if (files.length) importFiles(files);
     },
   };
@@ -836,13 +879,15 @@ export default function Home() {
     logins,
     onNew: () => setCreating({}),
     onImportZip: () => zipInput.current?.click(),
+    onImportFolder: () => folderInput.current?.click(), // Galley: import a folder
     onClone: (id) => setImportFrom(id),
   };
   const account: AccountActions = {
     accounts: authEnabled,
     user,
     admin: admin && authEnabled,
-    onAccount: () => setShowAccount(true),
+    onAccount: () => requestOpenSettings({ section: 'account' }), // Galley: V2 settings page
+    onSettings: () => requestOpenSettings(),
     onConnect: () => setConnectOpen(true),
     onAbout: () => setAboutOpen(true),
     onAdmin: () => navigate('/admin'),
@@ -858,16 +903,28 @@ export default function Home() {
     ...(projects || []).map((p) => ({ id: `open-${p.id}`, group: 'Projects', title: p.name, run: () => navigate(projectHref(p)) })),
     { id: 'new-project', group: 'New', title: 'New project…', run: () => setCreating({}) },
     { id: 'import-zip', group: 'New', title: 'Import a ZIP…', keywords: 'overleaf upload', run: () => zipInput.current?.click() },
+    { id: 'import-folder', group: 'New', title: 'Import a folder…', keywords: 'upload directory local', run: () => folderInput.current?.click() }, // Galley: import a folder
     ...remotes.map((r) => ({ id: `new-from-${r.id}`, group: 'New', title: `Clone from ${r.label}…`, keywords: 'import git repository', run: () => setImportFrom(r.id) })),
     ...appearanceCommands(appearance),
     ...(authEnabled ? [{ id: 'shared', group: 'More', title: 'Show projects shared with me', run: () => navigate('/?show=shared') }] : []),
     ...(archived?.length ? [{ id: 'archived', group: 'More', title: `Show archived projects (${archived.length})`, run: () => navigate('/?show=archived') }] : []),
     { id: 'trash', group: 'More', title: trash?.length ? `Show the trash (${trash.length})` : 'Show the trash', run: () => navigate('/?show=trash') },
-    ...(authEnabled && user ? [{ id: 'account', group: 'More', title: 'Account settings…', run: () => setShowAccount(true) }] : []),
+    // Galley: V2 settings page (⌘, runs 'settings' through the keybinding)
+    { id: 'settings', group: 'More', title: 'Settings…', keywords: 'preferences options', run: () => requestOpenSettings() },
+    ...(authEnabled && user ? [{ id: 'account', group: 'More', title: 'Account settings…', run: () => requestOpenSettings({ section: 'account' }) }] : []),
     ...(admin && authEnabled ? [{ id: 'admin', group: 'More', title: 'Server admin: accounts and usage', run: () => navigate('/admin') }] : []),
     { id: 'about', group: 'More', title: `About ${PRODUCT_NAME} and its source code`, run: () => setAboutOpen(true) },
     { id: 'connect-claude', group: 'More', title: 'Connect Claude or ChatGPT (MCP connector)…', run: () => setConnectOpen(true) },
   ], [remotes, authEnabled, user, admin, trash, archived, projects, navigate, appearance]);
+  // Galley: V2 page-scope keybindings (⌘, and the features') run these commands by id.
+  const commandsRef = useRef(paletteCommands);
+  commandsRef.current = paletteCommands;
+  usePageKeys(useCallback((cid: string) => {
+    const c = commandsRef.current.find((x) => x.id === cid);
+    if (!c) return false;
+    c.run();
+    return true;
+  }, []), !settingsRoute);
 
   const search = (
     <HomeSearch
@@ -1037,13 +1094,17 @@ export default function Home() {
     },
   });
 
-  return (
-    <div className="shelf-page" {...dropHandlers}>
+  return (<>
+    {/* Galley: V2 the settings page covers the list without unmounting it */}
+    <div className="shelf-page" {...dropHandlers} inert={settingsRoute || undefined}>
       <a className="skip-link" href="#projects">Skip to projects</a>
       <div ref={sentinel} className="shelf-page__sentinel" aria-hidden="true" />
       <HomeToolbar compact={compact} scrolled={scrolled} titleInBar={titleUnder} start={start} account={account} onOpenAddSheet={(keyboard) => setAddSheet({ keyboard })} search={search} />
       <input ref={zipInput} type="file" accept=".zip,application/zip" multiple hidden data-testid="import-input" aria-hidden="true" tabIndex={-1}
         onChange={(e) => { const files = Array.from(e.target.files ?? []); e.target.value = ''; if (files.length) importFiles(files); }} />
+      {/* Galley: import a folder (webkitdirectory is set through the ref: React has no prop for it). */}
+      <input ref={(el) => { folderInput.current = el; if (el) { el.setAttribute('webkitdirectory', ''); el.setAttribute('directory', ''); } }} type="file" multiple hidden data-testid="import-folder-input" aria-hidden="true" tabIndex={-1}
+        onChange={(e) => { const files = Array.from(e.target.files ?? []); e.target.value = ''; if (files.length) void importFolder(entriesFromPicker(files)); }} />
 
       <main className="shelf-page__main" id="projects" tabIndex={-1} ref={mainRef}>
         <div className="shelf-page__title-row">
@@ -1098,11 +1159,12 @@ export default function Home() {
             </ul>
             <p className="shelf-start__import">
               Or bring one over: <button type="button" className="link-button" onClick={() => zipInput.current?.click()} data-testid="empty-import-zip">Import a ZIP from Overleaf</button>
+              {' · '}<button type="button" className="link-button" onClick={() => folderInput.current?.click()} data-testid="empty-import-folder">Import a folder</button>
               {remotes.map((r, i) => (
                 <span key={r.id}>{' · '}<button type="button" className="link-button" onClick={() => setImportFrom(r.id)} data-testid={`empty-clone-${r.id}`}>{i === 0 ? `Clone from ${r.label}` : r.label}</button></span>
               ))}
             </p>
-            <p className="shelf-start__hint">You can also drop .zip files anywhere on this page.</p>
+            <p className="shelf-start__hint">You can also drop .zip files or folders anywhere on this page.</p>
           </div>
         )}
 
@@ -1124,7 +1186,8 @@ export default function Home() {
 
       {ctx.element}
       {aboutOpen && <About onClose={() => setAboutOpen(false)} />}
-      {connectOpen && <ConnectClaudeModal onClose={() => setConnectOpen(false)} onManage={authEnabled && user ? () => setShowAccount(true) : undefined} />}
+      {/* Galley: V2 the connector's tokens are on the settings page's Connections section */}
+      {connectOpen && <ConnectClaudeModal onClose={() => setConnectOpen(false)} onManage={authEnabled && user ? () => requestOpenSettings({ section: 'connections' }) : undefined} />}
       <CommandPalette open={paletteOpen} commands={paletteCommands} onClose={() => setPaletteOpen(false)} placeholder="Type a command or project…" groupOrder={PALETTE_GROUPS} idleSectionLimit={8} />
 
       {addSheet && (
@@ -1153,7 +1216,6 @@ export default function Home() {
           }}
         />
       )}
-      {showAccount && user && <AccountSettings user={user} focus={accountFocus} onClose={() => { setShowAccount(false); setAccountFocus(undefined); }} />}
       {importFrom && (
         <RemoteImport key={importFrom} provider={importFrom} onClose={() => setImportFrom(null)} onImported={(id) => navigate(`/p/${id}`)} />
       )}
@@ -1166,7 +1228,18 @@ export default function Home() {
         />
       )}
     </div>
-  );
+    {/* Galley: V2 settings page over the list (/settings/<section>#<setting>) */}
+    {settingsRoute && (
+      <Suspense fallback={null}>
+        <SettingsPage
+          section={settingsSection(route.pathname.split('/')[2])}
+          setting={settingFromHash(route.hash)}
+          project={null}
+          onClose={() => closeSettings(navigate, '/', route.search)}
+        />
+      </Suspense>
+    )}
+  </>);
 }
 
 /** Each sheet's stage: as tall as the tallest page in its row of `cols`. */

@@ -35,6 +35,24 @@ export function setVisualContext(projectId: string, branch: string, rootFile?: s
       .then((entries) => { bib = new Map(entries.map((e) => [e.key, e])); bibRev++; pokeViews(); })
       .catch(() => { bib = new Map(); });
   }
+  useRootPreamble(projectId, branch, rootFile); // Galley: V2 math hover (WP13) shared with setMacroContext
+}
+
+// Galley: V2 math hover (WP13) the macro half of setVisualContext, for Source mode's formula preview.
+/**
+ * What the formula macros need in either mode: the project, and the root
+ * file whose preamble a chapter's formulas use. Unlike setVisualContext it
+ * fetches no bibliography and keeps the notice sink Visual mode set.
+ */
+export function setMacroContext(projectId: string, branch: string, rootFile?: string | null): void {
+  const rootDir = rootFile && rootFile.includes('/') ? rootFile.slice(0, rootFile.lastIndexOf('/')) : '';
+  ctx = { projectId, branch, rootDir, rootFile: rootFile ?? null };
+  useRootPreamble(projectId, branch, rootFile ?? undefined);
+}
+
+function useRootPreamble(projectId: string, branch: string, rootFile?: string): void {
+  const key = `${projectId}::${branch}`;
+  // Galley: end V2 math hover (WP13)
   const rootKey = `${key}::${rootFile ?? ''}`;
   if (!rootFile) rootPreamble = null;
   else if (rootPreamble?.key !== rootKey) {

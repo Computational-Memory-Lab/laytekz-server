@@ -1,0 +1,25 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath}
+\newcommand{\R}{\mathbb{R}}
+\begin{document}
+Some text before the display, long enough to wrap onto a second line of
+the paragraph so that the box structure is interesting for the parser.
+\[
+  x^2 + y^2 = z^2
+\]
+More text with inline math $E=mc^2$ and again $a+b$ here.
+\begin{equation}
+  \int_0^1 f(x)\,dx = F(1) - F(0) \label{eq:int}
+\end{equation}
+Then an aligned block:
+\begin{align}
+  a &= b + c \\
+  d &= e - f
+\end{align}
+
+\begin{equation}
+  M = \begin{pmatrix} 1 & 2 \\ 3 & 4 \end{pmatrix}
+\end{equation}
+See \eqref{eq:int}.
+\input{chapters/ch1}
+\end{document}

@@ -1,5 +1,13 @@
-import { describe, expect, it } from 'vitest';
-import { FORMAT_DOCUMENT_KEYS, chordConflict, chordFor, chordFromEvent, chordProblem, formatChord, isDefaultChord, isFindKey, isTypesetEnter, matchesChord, setChord } from '../shortcuts';
+import { describe, expect, it, vi } from 'vitest';
+
+// Galley: V2 (WP04) these V1 exports now delegate to keys/registry.ts; without
+// the settings store it keeps overrides itself, as V1 did.
+vi.mock('../../settings/store', () => {
+  const missing = () => { throw new Error('store not used here'); };
+  return { getSetting: missing, setSetting: missing, resetSetting: missing, subscribeSetting: missing };
+});
+
+import { FORMAT_DOCUMENT_KEYS, SHORTCUTS, chordConflict, chordFor, chordFromEvent, chordProblem, formatChord, isDefaultChord, isFindKey, isTypesetEnter, matchesChord, matchesShortcut, sameChord, setChord } from '../shortcuts';
 
 const key = (k: string, code: string, mods: Partial<Record<'metaKey' | 'ctrlKey' | 'shiftKey' | 'altKey', boolean>> = {}, altGraph = false) =>
   ({ key: k, code, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...mods, getModifierState: (m: string) => m === 'AltGraph' && altGraph }) as unknown as KeyboardEvent;
@@ -124,5 +132,44 @@ describe('choosing a chord', () => {
     setChord('comment', null);
     expect(isDefaultChord('comment')).toBe(true);
     expect(formatChord(chordFor('comment'), true)).toBe('⇧⌘C');
+  });
+});
+
+// Galley: V2 (WP04) the registry's rules as the V1 rows meet them.
+describe('the V2 registry behind the V1 exports', () => {
+  it('keeps the five V1 shortcuts, labels and defaults', () => {
+    expect(SHORTCUTS.map((s) => [s.id, s.label, formatChord(s.chord, true)])).toEqual([
+      ['typeset', 'Typeset', '⌘S'],
+      ['comment', 'Comment on the selection', '⇧⌘C'],
+      ['jump', 'Jump the PDF to the cursor', '⌘J'],
+      ['palette', 'Command palette', '⌘K'],
+      ['search', 'Search the project', '⇧⌘F'],
+    ]);
+  });
+
+  it('accepts Alt+Enter without ⌘ and refuses Alt+E, which types', () => {
+    expect(chordProblem({ mod: false, shift: false, alt: true, key: 'Enter', code: 'Enter' }, 'jump', true)).toMatch(/already Follow/);
+    expect(chordProblem({ mod: false, shift: true, alt: true, key: 'Enter', code: 'Enter' }, 'jump', false)).toBeNull();
+    expect(chordProblem({ mod: false, shift: false, alt: true, key: 'e', code: 'KeyE' }, 'jump', true)).toMatch(/Hold ⌘/);
+  });
+
+  it('refuses the developer tools\' and the browser\'s Shift chords for a V1 shortcut too', () => {
+    expect(chordProblem({ mod: true, shift: true, alt: false, key: 'i', code: 'KeyI' }, 'jump', false)).toBe("Ctrl+Shift+I belongs to the browser's developer tools");
+    expect(chordProblem({ mod: true, shift: true, alt: false, key: 'p', code: 'KeyP' }, 'typeset', true)).toBe('⇧⌘P belongs to the browser');
+  });
+
+  it('matches a named key in either case, so a default on Enter needs no code', () => {
+    const enter = { mod: false, shift: false, alt: true, key: 'Enter' };
+    expect(matchesChord(key('Enter', 'NumpadEnter', { altKey: true }), enter, false)).toBe(true);
+    expect(sameChord({ mod: false, shift: false, alt: false, key: 'F2' }, { mod: false, shift: false, alt: false, key: 'f2', code: 'F2' })).toBe(true);
+  });
+
+  it('a reset after a change matches the default keys again', () => {
+    setChord('palette', { mod: true, shift: true, alt: false, key: 'k', code: 'KeyK' });
+    expect(matchesShortcut(key('k', 'KeyK', { metaKey: true }), 'palette')).toBe(false);
+    setChord('palette', null);
+    expect(isDefaultChord('palette')).toBe(true);
+    expect(matchesShortcut(key('k', 'KeyK', { metaKey: true }), 'palette')).toBe(true);
+    expect(chordFor('palette')).toEqual({ mod: true, shift: false, alt: false, key: 'k' });
   });
 });

@@ -4,6 +4,8 @@ import {
   type TouchEvent as ReactTouchEvent,
 } from 'react';
 import { createPortal } from 'react-dom';
+// Galley: V2 (WP04) openMenu renders a Menu from code outside React (the editor's context menu).
+import { createRoot } from 'react-dom/client';
 import { IconCheck, IconChevronRight } from './Icons';
 import ActionSheet from './ActionSheet';
 import { useExitGhost } from '../exitGhost';
@@ -44,7 +46,10 @@ export type MenuEntry =
   /** Who or what the menu is about, above its items (an account's name and email). */
   | { kind: 'header'; id?: string; title: string; detail?: string | null; testId?: string }
   /** A line of advice that does nothing when chosen ("Drop .zip files anywhere on this page"). */
-  | { kind: 'hint'; id?: string; label: string; testId?: string };
+  | { kind: 'hint'; id?: string; label: string; testId?: string }
+  /** Galley: V2 a row drawn by a component (slot items such as home.accountMenu's).
+   *  The arrow keys skip it; a control inside it is reached with the pointer. */
+  | { kind: 'custom'; id: string; render: ReactNode; testId?: string };
 
 export type MenuCloseReason = 'escape' | 'tab' | 'outside' | 'select';
 export type { MenuAnchor };
@@ -61,7 +66,7 @@ const TYPEAHEAD_MS = 500;
 const PHONE = '(max-width: 640px)';
 export const sheetFits = () => typeof window !== 'undefined' && !!window.matchMedia?.(PHONE).matches;
 
-const takesFocus = (e: MenuEntry) => e.kind !== 'separator' && e.kind !== 'label' && e.kind !== 'header';
+const takesFocus = (e: MenuEntry) => e.kind !== 'separator' && e.kind !== 'label' && e.kind !== 'header' && e.kind !== 'custom'; // Galley: V2 custom rows
 const labelOf = (e: MenuEntry) => ('label' in e ? e.label : '');
 
 interface Tree {
@@ -258,7 +263,7 @@ function MenuLevel({ tree, depth, items, anchor, initialFocus, focusNonce, label
   const activate = (index: number, fromKeyboard: boolean) => {
     const e = items[index];
     if (e.kind === 'submenu') { if (!e.disabled) openSub(index, fromKeyboard ? 'first' : 'none'); return; }
-    if (e.kind === 'separator' || e.kind === 'label' || e.kind === 'header' || e.kind === 'hint' || e.disabled) return;
+    if (e.kind === 'separator' || e.kind === 'label' || e.kind === 'header' || e.kind === 'hint' || e.kind === 'custom' || e.disabled) return; // Galley: V2 custom rows
     tree.select(e);
   };
 
@@ -335,6 +340,8 @@ function MenuLevel({ tree, depth, items, anchor, initialFocus, focusNonce, label
         </div>
       );
     }
+    // Galley: V2 a custom row is the component's own markup, outside the menu's rows.
+    if (e.kind === 'custom') return <div key={e.id} role="none" className="menu__custom" data-testid={e.testId}>{e.render}</div>;
     const common = {
       id: rowId(i),
       ref: (el: HTMLElement | null) => { rows.current[i] = el; },
@@ -441,6 +448,33 @@ function MenuLevel({ tree, depth, items, anchor, initialFocus, focusNonce, label
       )}
     </>
   );
+}
+
+// Galley: V2 (WP04) an imperative Menu for hosts that are not React
+// components: the editor's context menu (contextmenu/index.ts) and the PDF
+// pane's (PdfPane.tsx). One root per open menu, gone when it closes.
+export interface OpenMenuOptions extends Omit<MenuProps, 'onClose'> {
+  onClose?(reason: MenuCloseReason): void;
+}
+
+/** Opens a Menu over the page; `close()` takes it away without returning focus. */
+export function openMenu(o: OpenMenuOptions): { close(): void } {
+  const host = document.createElement('div');
+  host.setAttribute('data-menu-host', '');
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  let open = true;
+  const finish = (reason: MenuCloseReason) => {
+    if (!open) return;
+    open = false;
+    // Not inside the event React is dispatching: unmounting a root from its own handler warns.
+    setTimeout(() => { root.unmount(); host.remove(); }, 0);
+    o.onClose?.(reason);
+  };
+  const { onClose: _onClose, ...props } = o;
+  void _onClose;
+  root.render(<Menu {...props} onClose={finish} />);
+  return { close: () => finish('outside') };
 }
 
 type Placement = 'bottom-start' | 'bottom-end';

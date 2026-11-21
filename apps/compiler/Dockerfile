@@ -83,7 +83,7 @@ RUN latexindent --version
 RUN tlmgr conf texmf shell_escape p
 
 WORKDIR /srv
-COPY server.js catalog.js preamble.js thumbnail.js format.js guard.js ./
+COPY server.js catalog.js preamble.js thumbnail.js format.js guard.js glossary-rules.js bib-missing.js ./
 # server.js reports the scheme at GET /health; the ARG must be re-declared
 # after FROM to be visible in this stage.
 ARG TEXLIVE_SCHEME

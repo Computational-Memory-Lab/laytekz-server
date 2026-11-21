@@ -1,0 +1,7 @@
+
+	Wilcoxon signed rank exact test
+
+data:  x and y
+V = 5, p-value = 0.03906
+alternative hypothesis: true location shift is not equal to 0
+

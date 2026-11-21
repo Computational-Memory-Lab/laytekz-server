@@ -4,7 +4,7 @@
  * plain text; nothing invents structure that wasn't in the clipboard.
  */
 
-const SPECIALS: Record<string, string> = {
+export const SPECIALS: Record<string, string> = { // Galley: V2 typing core exports it (WP08)
   '\\': '\\textbackslash{}',
   '&': '\\&', '%': '\\%', '$': '\\$', '#': '\\#', '_': '\\_',
   '{': '\\{', '}': '\\}', '~': '\\textasciitilde{}', '^': '\\textasciicircum{}',
@@ -15,7 +15,7 @@ export function escapeLatex(text: string): string {
 }
 
 /** Unicode math and Greek as math-mode LaTeX. */
-const UNICODE_MATH: Record<string, string> = {
+export const UNICODE_MATH: Record<string, string> = { // Galley: V2 typing core exports it (WP08)
   α: '\\alpha', β: '\\beta', γ: '\\gamma', δ: '\\delta', ε: '\\varepsilon', ϵ: '\\epsilon', ζ: '\\zeta', η: '\\eta',
   θ: '\\theta', ϑ: '\\vartheta', ι: '\\iota', κ: '\\kappa', λ: '\\lambda', μ: '\\mu', ν: '\\nu', ξ: '\\xi', ο: 'o',
   π: '\\pi', ϖ: '\\varpi', ρ: '\\rho', ϱ: '\\varrho', σ: '\\sigma', ς: '\\varsigma', τ: '\\tau', υ: '\\upsilon',
@@ -37,7 +37,7 @@ const UNICODE_MATH: Record<string, string> = {
 };
 
 /** Characters of UNICODE_MATH that pdfLaTeX's UTF-8 input typesets in text as they are. */
-const PDF_TEXT_OK = new Set('±×÷·°µ¬…→←↑↓');
+export const PDF_TEXT_OK = new Set('±×÷·°µ¬…→←↑↓'); // Galley: V2 typing core exports it (WP08)
 const PROSE_SYMBOL = new RegExp(`[${Object.keys(UNICODE_MATH).filter((c) => !PDF_TEXT_OK.has(c)).join('')}]`, 'gu');
 
 /**
@@ -524,7 +524,7 @@ function base(s: string): string {
 }
 
 /** Function names TeX sets upright as operators. */
-const MATH_FUNCTIONS = /^(?:sin|cos|tan|cot|sec|csc|sinh|cosh|tanh|coth|arcsin|arccos|arctan|log|ln|lg|exp|lim|liminf|limsup|max|min|sup|inf|det|dim|ker|arg|deg|gcd|hom|Pr)$/;
+export const MATH_FUNCTIONS = /^(?:sin|cos|tan|cot|sec|csc|sinh|cosh|tanh|coth|arcsin|arccos|arctan|log|ln|lg|exp|lim|liminf|limsup|max|min|sup|inf|det|dim|ker|arg|deg|gcd|hom|Pr)$/; // Galley: V2 typing core exports it (WP08)
 
 function operatorName(name: string): string {
   const t = name.trim();

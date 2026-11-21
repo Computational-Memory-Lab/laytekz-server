@@ -1,17 +1,21 @@
 import { useSyncExternalStore } from 'react';
-import { safeStorage } from './util/safeStorage';
+// Galley: the appearance is the settings store's `appearance.theme` (V2,
+// WP02): one storage listener for every setting, and the account keeps the
+// choice. The key, its values and this module's exports are unchanged.
+import { getSetting, setSetting, startLocalSettings, subscribeSetting } from './settings/store';
+import { CORE_SETTING_IDS } from './settings/types';
+import { parseAppearance as parseStored, type Appearance } from './settings/codecs';
+import { darkMedia, paintTheme, resolveTheme, systemIsDark, THEME_COLOR, type Theme } from './settings/apply';
 
-/** What is drawn: `data-theme` on <html>. */
-export type Theme = 'light' | 'dark';
-/** What the person chose. "system" follows the operating system's setting. */
-export type Appearance = 'system' | 'light' | 'dark';
+/** What is drawn: `data-theme` on <html>. "system" in Appearance follows the
+ *  operating system's setting. */
+export type { Theme, Appearance };
 
 export const THEME_KEY = 'aldine.theme';
-const DARK_QUERY = '(prefers-color-scheme: dark)';
 
 /** Each theme's --bg-app, for the browser's own chrome. The pre-paint script
  *  in index.html repeats these two values and the rules below. */
-export const THEME_COLOR: Record<Theme, string> = { dark: '#1c1c1e', light: '#f5f5f7' };
+export { THEME_COLOR, resolveTheme };
 
 export const APPEARANCES: readonly { id: Appearance; label: string }[] = [
   { id: 'system', label: 'Match system' },
@@ -22,12 +26,7 @@ export const APPEARANCES: readonly { id: Appearance; label: string }[] = [
 /** Galley: the default follows the operating system: nothing stored, or anything
  *  unknown, is "system" (upstream defaulted to dark). */
 export function parseAppearance(raw: string | null | undefined): Appearance {
-  return raw === 'light' || raw === 'system' || raw === 'dark' ? raw : 'system';
-}
-
-export function resolveTheme(appearance: Appearance, systemDark: boolean): Theme {
-  if (appearance === 'system') return systemDark ? 'dark' : 'light';
-  return appearance;
+  return parseStored(raw);
 }
 
 /** The explicit choice a light/dark switch makes from what is on screen. */
@@ -35,46 +34,20 @@ export function toggled(current: Theme): Theme {
   return current === 'dark' ? 'light' : 'dark';
 }
 
-function darkMedia(): MediaQueryList | null {
-  try { return typeof window !== 'undefined' && window.matchMedia ? window.matchMedia(DARK_QUERY) : null; } catch { return null; }
-}
-
-/** Without a media query to ask, "system" falls back to the default. */
-function systemIsDark(): boolean {
-  return darkMedia()?.matches ?? true;
-}
-
-let appearance: Appearance = parseAppearance(safeStorage.get(THEME_KEY));
-const listeners = new Set<() => void>();
-const notify = () => listeners.forEach((l) => l());
+const ID = CORE_SETTING_IDS.theme;
 
 export function getAppearance(): Appearance {
-  return appearance;
+  return getSetting<Appearance | undefined>(ID) ?? 'system';
 }
 
 export function getTheme(): Theme {
-  return resolveTheme(appearance, systemIsDark());
-}
-
-function paint(t: Theme, animate: boolean): void {
-  if (typeof document === 'undefined') return;
-  const root = document.documentElement;
-  const apply = () => {
-    root.dataset.theme = t;
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', THEME_COLOR[t]);
-  };
-  const doc = document as Document & { startViewTransition?: (cb: () => void) => unknown };
-  // Only an actual change cross-fades; a view transition freezes input for
-  // its duration, and re-selecting the current theme should cost nothing.
-  if (animate && doc.startViewTransition && root.dataset.theme !== t) doc.startViewTransition(apply);
-  else apply();
+  return resolveTheme(getAppearance(), systemIsDark());
 }
 
 export function setAppearance(next: Appearance): void {
-  appearance = next;
-  safeStorage.set(THEME_KEY, next);
-  paint(getTheme(), true);
-  notify();
+  // Painted first, with its cross-fade: the store's own repaint then finds it done.
+  paintTheme(resolveTheme(next, systemIsDark()), true);
+  setSetting(ID, next);
 }
 
 /** An explicit light or dark choice. */
@@ -88,29 +61,22 @@ export function toggleTheme(): Theme {
   return next;
 }
 
-let syncing = false;
-
 /**
  * Keeps the page on the chosen appearance after first paint: follows the
  * system while the choice is "system", and follows a choice made in another
- * tab. Called once at startup.
+ * tab or, once startSettings runs, on another device. Called once at startup.
  */
 export function startThemeSync(): void {
-  if (syncing || typeof window === 'undefined') return;
-  syncing = true;
-  paint(getTheme(), false);
-  darkMedia()?.addEventListener('change', () => {
-    if (appearance === 'system') { paint(getTheme(), true); notify(); }
-  });
-  window.addEventListener('storage', (e) => {
-    if (e.key !== THEME_KEY) return;
-    appearance = parseAppearance(e.newValue);
-    paint(getTheme(), false);
-    notify();
-  });
+  startLocalSettings();
 }
 
-function subscribe(l: () => void) { listeners.add(l); return () => { listeners.delete(l); }; }
+/** The choice, and the system's dark mode while following it. */
+function subscribe(l: () => void) {
+  const off = subscribeSetting(ID, l);
+  const media = darkMedia();
+  media?.addEventListener('change', l);
+  return () => { off(); media?.removeEventListener('change', l); };
+}
 
 /** The stored choice, live across changes from anywhere. */
 export function useAppearance(): Appearance {

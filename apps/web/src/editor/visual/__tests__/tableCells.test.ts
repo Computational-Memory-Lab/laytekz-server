@@ -91,3 +91,17 @@ describe('pasting into a cell (vis-6)', () => {
     }
   });
 });
+
+// Galley: the scanner's nested environments, \verb and \tabularnewline (WP14)
+describe('cells the scanner keeps whole (F4)', () => {
+  const texts = (body: string) => parseTabular(body, 0)!.rows.map((r) => r.map((c) => c.text));
+  it('keeps a nested tabular or array and a \\verb in one cell, and ends a row at \\tabularnewline', () => {
+    expect(texts('x & \\begin{tabular}{@{}c@{}}a\\\\b\\end{tabular} \\\\ y & z \\\\'))
+      .toEqual([['x', '\\begin{tabular}{@{}c@{}}a\\\\b\\end{tabular}'], ['y', 'z']]);
+    expect(texts('$\\begin{array}{cc}1&2\\end{array}$ & q \\\\')).toEqual([['$\\begin{array}{cc}1&2\\end{array}$', 'q']]);
+    expect(texts('\\verb|a&b| & c \\\\')).toEqual([['\\verb|a&b|', 'c']]);
+    expect(texts('\\verb*+x\\\\y+ & c \\\\')).toEqual([['\\verb*+x\\\\y+', 'c']]);
+    expect(texts('a & b \\tabularnewline\nc & d \\tabularnewline[2pt]\n')).toEqual([['a', 'b'], ['c', 'd']]);
+    expect(parseTabular('a & b \\tabularnewline[2pt]\n', 0)!.breaks[0]).toEqual([6, 26]);
+  });
+});

@@ -14,7 +14,8 @@ import { PRODUCT_NAME } from '../product'; // Galley: the product's own name
 /** The git host accounts this user connected, each with Disconnect. A
  *  replacement token is entered where it is used: Clone from a host, or a
  *  project's Git access. */
-function GitHosts() {
+// Galley: exported for the settings page's Connections section (WP07)
+export function GitHosts() {
   const [rows, setRows] = useState<RemoteConnectionRow[] | null>(null);
   const [failed, setFailed] = useState(false);
   const toast = useToast();
@@ -48,7 +49,8 @@ function GitHosts() {
 
 /** Template repositories only this account sees in the New project gallery.
  *  Hidden when the server turned them off (max 0) or answers 404. */
-function PersonalTemplates() {
+// Galley: exported for the settings page's Connections section (WP07)
+export function PersonalTemplates() {
   const [data, setData] = useState<{ max: number; repos: PersonalTemplateRepo[] } | null>(null);
   const [failed, setFailed] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -137,7 +139,8 @@ function PersonalTemplates() {
 }
 
 /** The Zotero key the account keeps for linking its projects, with a way to drop it. */
-function ZoteroKey() {
+// Galley: exported for the settings page's Connections section (WP07)
+export function ZoteroKey() {
   const [key, setKey] = useState<{ saved: boolean; username?: string | null } | null>(null);
   const [failed, setFailed] = useState(false);
   const toast = useToast();
@@ -173,7 +176,8 @@ function ZoteroKey() {
  *  sign-on providers it connected. Connect goes to the provider and comes
  *  back to this dialog; a session older than ten minutes asks for the
  *  password first. */
-function SignInMethods({ focus }: { focus: boolean }) {
+// Galley: exported for the settings page's Account section (WP07)
+export function SignInMethods({ focus }: { focus: boolean }) {
   const [m, setM] = useState<Methods | null>(null);
   const [failed, setFailed] = useState(false);
   const [asking, setAsking] = useState<{ id: string; label: string } | null>(null);
@@ -277,7 +281,8 @@ const EXPIRY_CHOICES = [
 
 /** Access tokens for agents (Claude connector onboarding lives here). Only
  *  mounted when auth is on — token routes 404 without users. */
-function AgentAccess({ onSecret }: { onSecret?: (shown: boolean) => void }) {
+// Galley: exported for the settings page's Connections section (WP07)
+export function AgentAccess({ onSecret }: { onSecret?: (shown: boolean) => void }) {
   const [tokens, setTokens] = useState<AccessToken[] | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState('');
@@ -592,7 +597,8 @@ function NameRow({ user }: { user: AuthUser }) {
 
 /** The author email on commits Aldine makes for this account (push,
  *  checkpoints, branch switches); the author name stays the account name. */
-function CommitEmailRow({ user }: { user: AuthUser }) {
+// Galley: exported for the settings page's Account section (WP07)
+export function CommitEmailRow({ user }: { user: AuthUser }) {
   const { setUser } = useAuth();
   const toast = useToast();
   const [editing, setEditing] = useState(false);
@@ -658,57 +664,135 @@ function CommitEmailRow({ user }: { user: AuthUser }) {
   );
 }
 
-/** Account settings: identity, agent access, change password (password accounts only). */
-export default function AccountSettings({ user, onClose, focus }: { user: AuthUser; onClose(): void; focus?: 'sign-in' }) {
-  const [current, setCurrent] = useState('');
-  const [secretShown, setSecretShown] = useState(false);
-  const [next, setNext] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [passwordError, setPasswordError] = useState('');
-  const toast = useToast();
-  const isSso = !!user.provider;
+// Galley: how the account signs in, for the identity rows and the password block (WP07)
+function useSignInKind(user: AuthUser): { isSso: boolean; providerName: string; genericSso: boolean } {
   const { providers } = useAuth();
   // OIDC is named by the operator (OIDC_LABEL); the default label is already "Single sign-on".
   const providerName = user.provider ? PROVIDER_NAME[user.provider] || providers.find((p) => p.id === user.provider)?.label || user.provider : '';
-  const genericSso = providerName === 'Single sign-on';
-  // The footer's password action is the hero only once both fields are
-  // filled; before that it would sit as a second primary under "Create token".
-  const passwordReady = current.length > 0 && next.length > 0;
+  return { isSso: !!user.provider, providerName, genericSso: providerName === 'Single sign-on' };
+}
+
+// Galley: the account's identity rows (email, name, ORCID iD, how it signs in),
+// shared by the dialog below and the settings page's Account section (WP07).
+export function AccountIdentity({ user }: { user: AuthUser }) {
+  const { isSso, providerName, genericSso } = useSignInKind(user);
+  return (
+    <>
+      <p className="modal__sub" data-testid="account-email">{user.email ?? 'No email address on this account'}</p>
+
+      <NameRow user={user} />
+      {user.orcid && (
+        <div className="settings__row">
+          <span className="settings__label">ORCID iD</span>
+          <a href={`https://orcid.org/${user.orcid}`} target="_blank" rel="noreferrer" data-testid="account-orcid">{user.orcid}</a>
+        </div>
+      )}
+      <div className="settings__row">
+        <span className="settings__label">Sign-in</span>
+        <span data-testid="account-sign-in">{isSso ? (genericSso ? 'Single sign-on' : `Single sign-on (${providerName})`) : 'Email & password'}</span>
+      </div>
+    </>
+  );
+}
+
+// Galley: the password change's state, shared by the dialog (submit button in
+// its footer) and the settings page (button under the form, WP07).
+export interface PasswordChange {
+  current: string;
+  next: string;
+  busy: boolean;
+  error: string;
+  /** The password action is the hero only once both fields are filled;
+   *  before that it would sit as a second primary under "Create token". */
+  ready: boolean;
+  setCurrent(v: string): void;
+  setNext(v: string): void;
+  change(e?: React.FormEvent): Promise<void>;
+}
+
+// Galley: the password change from the dialog, as a hook (WP07)
+export function usePasswordChange(onChanged: () => void): PasswordChange {
+  const [current, setCurrentValue] = useState('');
+  const [next, setNextValue] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const toast = useToast();
 
   const change = async (e?: React.FormEvent) => {
     e?.preventDefault();
     if (busy) return;
-    setPasswordError('');
-    if (next.length < 8) { setPasswordError('New password must be at least 8 characters'); return; }
+    setError('');
+    if (next.length < 8) { setError('New password must be at least 8 characters'); return; }
     setBusy(true);
     try {
       const { revokedTokens } = await api.changePassword(current, next);
       toast(revokedTokens ? 'Password updated. Agent access was revoked: reconnect your agents and create new tokens.' : 'Password updated', 'ok');
-      setCurrent(''); setNext('');
-      onClose();
+      setCurrentValue(''); setNextValue('');
+      onChanged();
     } catch (err: any) {
-      setPasswordError(err.message);
+      setError(err.message);
     }
     setBusy(false);
   };
+
+  return {
+    current,
+    next,
+    busy,
+    error,
+    ready: current.length > 0 && next.length > 0,
+    setCurrent: (v) => { setCurrentValue(v); setError(''); },
+    setNext: (v) => { setNextValue(v); setError(''); },
+    change,
+  };
+}
+
+// Galley: the password block of the dialog below, shared with the settings page (WP07).
+// The submit button stays with the caller: `<button type="submit" form="change-password">`.
+export function PasswordForm({ user, pw }: { user: AuthUser; pw: PasswordChange }) {
+  const { isSso, providerName, genericSso } = useSignInKind(user);
+  return isSso ? (
+    <p style={{ color: 'var(--text-2)', fontSize: 'var(--text-m)', marginTop: 18 }}>
+      Your password is managed by {genericSso ? 'your identity provider' : providerName}. There's nothing to change here.
+      {user.orcid && !user.email && ' Collaborators invite you by your ORCID iD, since this account has no email address.'}
+    </p>
+  ) : (
+    <>
+      <div className="menu__label" id="change-password-label" style={{ margin: '18px 0 6px' }}>Change password</div>
+      {/* A form a password manager recognises: Enter submits it, and the
+          hidden username tells the manager which saved login to update. */}
+      <form id="change-password" className="login__form" onSubmit={pw.change} noValidate aria-labelledby="change-password-label" data-testid="change-password-form">
+        <input type="text" name="username" autoComplete="username" value={user.email ?? ''} readOnly hidden />
+        <div className="login__field">
+          <label className="field__label" htmlFor="account-current-password">Current password</label>
+          <input id="account-current-password" className="input login__input" type="password" name="current-password" autoComplete="current-password" value={pw.current} data-testid="current-password" onChange={(e) => pw.setCurrent(e.target.value)} />
+        </div>
+        <div className="login__field">
+          <label className="field__label" htmlFor="account-new-password">New password</label>
+          <input id="account-new-password" className="input login__input" type="password" name="new-password" autoComplete="new-password" aria-describedby="account-new-password-hint" value={pw.next} data-testid="new-password" onChange={(e) => pw.setNext(e.target.value)} />
+          <p className="login__hint" id="account-new-password-hint">At least 8 characters.</p>
+        </div>
+        {pw.error && <p className="login__error" role="alert" data-testid="password-error">{pw.error}</p>}
+      </form>
+      <p style={{ color: 'var(--text-3)', fontSize: 'var(--text-s)', margin: '4px 0 0' }}>Changing your password signs out your other sessions and revokes agent access.</p>
+    </>
+  );
+}
+
+/** Account settings: identity, agent access, change password (password accounts only). */
+// Galley: retired in V2 (WP23): no entry point opens this dialog; the settings page's Account and Connections sections show its parts.
+export default function AccountSettings({ user, onClose, focus }: { user: AuthUser; onClose(): void; focus?: 'sign-in' }) {
+  const [secretShown, setSecretShown] = useState(false);
+  // Galley: the password block's state lives in usePasswordChange (shared with the settings page, WP07)
+  const pw = usePasswordChange(onClose);
+  const isSso = !!user.provider;
 
   return (
     <Modal onClose={onClose} label="Account settings" testId="account-settings" dismissable={!secretShown}>
       <div>
         <h2 style={{ marginBottom: 2 }}>Account</h2>
-        <p className="modal__sub" data-testid="account-email">{user.email ?? 'No email address on this account'}</p>
-
-        <NameRow user={user} />
-        {user.orcid && (
-          <div className="settings__row">
-            <span className="settings__label">ORCID iD</span>
-            <a href={`https://orcid.org/${user.orcid}`} target="_blank" rel="noreferrer" data-testid="account-orcid">{user.orcid}</a>
-          </div>
-        )}
-        <div className="settings__row">
-          <span className="settings__label">Sign-in</span>
-          <span data-testid="account-sign-in">{isSso ? (genericSso ? 'Single sign-on' : `Single sign-on (${providerName})`) : 'Email & password'}</span>
-        </div>
+        {/* Galley: email, name, ORCID iD and sign-in rows live in AccountIdentity (WP07) */}
+        <AccountIdentity user={user} />
 
         {/* The onboarding funnel comes before the password block: a 70vh
             panel opened at scrollTop 0 must show the connector and the
@@ -725,36 +809,12 @@ export default function AccountSettings({ user, onClose, focus }: { user: AuthUs
 
         {!isSso && <SignInMethods focus={focus === 'sign-in'} />}
 
-        {isSso ? (
-          <p style={{ color: 'var(--text-2)', fontSize: 'var(--text-m)', marginTop: 18 }}>
-            Your password is managed by {genericSso ? 'your identity provider' : providerName}. There's nothing to change here.
-            {user.orcid && !user.email && ' Collaborators invite you by your ORCID iD, since this account has no email address.'}
-          </p>
-        ) : (
-          <>
-            <div className="menu__label" id="change-password-label" style={{ margin: '18px 0 6px' }}>Change password</div>
-            {/* A form a password manager recognises: Enter submits it, and the
-                hidden username tells the manager which saved login to update. */}
-            <form id="change-password" className="login__form" onSubmit={change} noValidate aria-labelledby="change-password-label" data-testid="change-password-form">
-              <input type="text" name="username" autoComplete="username" value={user.email ?? ''} readOnly hidden />
-              <div className="login__field">
-                <label className="field__label" htmlFor="account-current-password">Current password</label>
-                <input id="account-current-password" className="input login__input" type="password" name="current-password" autoComplete="current-password" value={current} data-testid="current-password" onChange={(e) => { setCurrent(e.target.value); setPasswordError(''); }} />
-              </div>
-              <div className="login__field">
-                <label className="field__label" htmlFor="account-new-password">New password</label>
-                <input id="account-new-password" className="input login__input" type="password" name="new-password" autoComplete="new-password" aria-describedby="account-new-password-hint" value={next} data-testid="new-password" onChange={(e) => { setNext(e.target.value); setPasswordError(''); }} />
-                <p className="login__hint" id="account-new-password-hint">At least 8 characters.</p>
-              </div>
-              {passwordError && <p className="login__error" role="alert" data-testid="password-error">{passwordError}</p>}
-            </form>
-            <p style={{ color: 'var(--text-3)', fontSize: 'var(--text-s)', margin: '4px 0 0' }}>Changing your password signs out your other sessions and revokes agent access.</p>
-          </>
-        )}
+        {/* Galley: the password block lives in PasswordForm (WP07) */}
+        <PasswordForm user={user} pw={pw} />
 
         <div className="modal__row" style={{ marginTop: 18 }}>
           <button className="btn" onClick={onClose}>Close</button>
-          {!isSso && <button type="submit" form="change-password" className={`btn${passwordReady ? ' btn--primary' : ''}`} disabled={busy} aria-busy={busy || undefined} data-testid="save-password">{busy ? '…' : 'Update password'}</button>}
+          {!isSso && <button type="submit" form="change-password" className={`btn${pw.ready ? ' btn--primary' : ''}`} disabled={pw.busy} aria-busy={pw.busy || undefined} data-testid="save-password">{pw.busy ? '…' : 'Update password'}</button>}
         </div>
       </div>
     </Modal>

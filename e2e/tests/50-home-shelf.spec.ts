@@ -166,7 +166,7 @@ test.describe('menus', () => {
 
       await page.getByTestId('new-menu').click();
       await expect(page.getByTestId('import-zip')).toBeVisible();
-      await expect(page.getByTestId('drop-hint')).toHaveText('Or drop .zip files anywhere on this page');
+      await expect(page.getByTestId('drop-hint')).toHaveText('Or drop .zip files or folders anywhere on this page');
       await page.keyboard.press('Escape');
     } finally { await cleanup(request, id); }
   });

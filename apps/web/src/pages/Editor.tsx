@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'; // Galley: V2 lazy settings page, feature activation
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, ApiError, CompileResult, ImportedProject, ProjectDetail, TreeEntry, Comment, ReplaceResult, SearchMatch, localUser, accountIdentity, onSignedOut, setLocalName, type AuthUser } from '../api';
 import { normalizeDeepLinkPath, resolveDeepLinkFile } from '../util/deepLink';
@@ -15,6 +15,23 @@ import CodePane, { CodePaneHandle, EditorMode } from '../components/CodePane';
 import { setVisualEngine, setVisualFiles } from '../editor/visual/context';
 import { closeParkedDocs } from '../editor/docCache';
 import PdfPane, { PdfPaneHandle } from '../components/PdfPane';
+// Galley: V2 page host (WP06): feature modules, page context, slots, settings routes.
+import { FEATURES } from '../features/manifest';
+import { FILES_MOVED_SIGNAL, type CodePaneFeatureHost, type PageEvents, type PdfPaneFeatureHost, type PinnedPanel } from '../features/types';
+import { createEmitter } from '../features/events';
+import { appCtx, closeSettings, installFeatures, requestOpenSettings, usePageKeys } from '../features/host';
+import {
+  activateFeatures, commandAllowed, createEditorPageCtx, editorSubpage, featureCommandDefs, interceptFileRename, interceptProjectRename,
+  parseFilesMoved, pinnedPluginPanels, plainPaletteRows, readOnlyReason, remapPath, settingFromHash, type CommandRole, type PageCtxSource,
+} from '../features/pageCtx';
+import { Slot, SlotItemView } from '../slots/Slot';
+import { slotItems } from '../slots/items';
+import type { CommandDef } from '../commands/types';
+import { paletteCommands, settingToggleCommands } from '../commands';
+import { SETTINGS } from '../settings/registry';
+import { refreshProjectSettings, setSettingsProject, useSetting } from '../settings/store';
+import { CORE_SETTING_IDS, PROJECT_SETTINGS_SIGNAL, type SettingsPageProps } from '../settings/types';
+import { onFilesMoved } from '../editor/core/hooks';
 import FilePreview from '../components/FilePreview';
 import { nextZoom, PDF_ZOOM_STEPS, previewKind, zoomKeys } from '../util/filePreview';
 import PdfPageNav from '../components/PdfPageNav';
@@ -27,7 +44,8 @@ import Presence, { PresenceUser } from '../components/Presence';
 import { PluginHost, PluginPanel, type PluginErrorsAction, type PluginCommand, type PluginConfirm } from '../plugins/host';
 import { hintFor, offersUnicodeEngine } from '../editor/errorHints';
 import { unicodeFontPlan, type UnicodeFontPlan } from '../editor/unicodeFont';
-import { IconBook, IconChevronDown, IconChevronLeft, IconChevronRight, IconComment, IconDownload, IconEllipsis, IconFiles, IconHistory, IconQuote, IconLayoutBoth, IconLayoutEditor, IconLayoutPdf, IconSearch, IconSidebar, IconToSource } from '../components/Icons';
+// Galley: IconDownload went with the PDF download button to features/outputs (V2 interim feature)
+import { IconBook, IconBookmark, IconChevronDown, IconChevronLeft, IconChevronRight, IconComment, IconEllipsis, IconFiles, IconHistory, IconQuote, IconLayoutBoth, IconLayoutEditor, IconLayoutPdf, IconSearch, IconSidebar, IconToSource } from '../components/Icons';
 import CommandPalette, { Command, PaletteTrigger } from '../components/CommandPalette';
 import ConnectClaudeModal from '../components/ClaudeConnect';
 import { invalidateBibCache, invalidateLabelCache } from '../editor/latexExtras';
@@ -35,6 +53,7 @@ import { useCommentSignal } from '../editor/commentSignal';
 import { presenceRows } from '../util/presence';
 import { useBranchSignal, type BranchPeer, type BranchSignalHandle, type BranchAgent } from '../editor/branchSignal';
 import { autoTypesetDelay, shouldAdoptRun, AGENT_RUN_WATCHDOG_MS, FULL_AFTER_DRAFT_MS, cancelsArmedTypeset, type TypesetSource } from '../editor/autoTypeset';
+import { reconnectWatch, retypesetOnReconnect, runSeesLocalEdits, isNetworkFailure } from '../editor/autoTypeset'; // Galley: V2 integrator: typeset after a reconnection
 import RemoteSync from '../components/RemoteSync';
 import RemotePublish from '../components/RemotePublish';
 import RemotePendingBanner from '../components/RemotePendingBanner';
@@ -44,7 +63,7 @@ import Modal from '../components/Modal';
 import DiffView from '../components/DiffView';
 import { filesInPatch } from '../util/patch';
 import { readSeen, markPrompted, markAcknowledged } from '../util/agentSeen';
-import { mergeAgentBatches, revertSummary, agentName, type AgentBatch } from '../util/agentReview';
+import { mergeAgentBatches, revertSummary, agentName, agentBatchName, type AgentBatch } from '../util/agentReview';
 import { askWaitingCommit } from '../util/waitingCommit';
 import { useAgentUnseen } from '../editor/agentUnseen';
 import type { AgentTreeMark, ChangeTreeMark } from '../components/FileTree';
@@ -56,7 +75,7 @@ import { useDocumentTitle } from '../util/documentTitle';
 import { FORMAT_DOCUMENT_KEYS, formatChord, isFindKey, isTypesetEnter, matchesShortcut, TYPESET_ENTER, useShortcutLabel } from '../util/shortcuts';
 import { shortcut } from '../platform';
 import { MenuButton, type MenuEntry } from '../components/Menu';
-import ProjectSettings from '../components/ProjectSettings';
+// Galley: V2 settings page; its "This project" section shows ProjectSettings' rows (WP07)
 import { ENGINES } from '../util/engines';
 import { loadIgnored, saveIgnored, warningKey } from '../util/warnings';
 import { safeSession, safeStorage } from '../util/safeStorage';
@@ -71,9 +90,10 @@ import ActionSheet from '../components/ActionSheet';
 import Outline from '../components/Outline';
 import type { OutlineEntry } from '../editor/visual/outline';
 import { mainDocuments, setCompletionFiles } from '../editor/completions';
-import { SPELLCHECK, SPELLCHECK_LANG, spellLangKnown } from '../editor/spellcheck';
-import { LAYOUTS, readLayout, rememberLayout, revealLayout, shownLayout, type Layout } from '../util/layout';
+// Galley: V2 preferences come from the settings store (CORE_SETTING_IDS), on V1's keys and codecs
+import { LAYOUTS, revealLayout, shownLayout, type Layout } from '../util/layout';
 import { PRODUCT_NAME } from '../product'; // Galley: the product's own name
+import { takeRegexSeed } from '../features/links/searchSeed'; // Galley: V2 (WP20) Find references seeds a pattern
 
 type CompileStatus = 'idle' | 'compiling' | 'ok' | 'error';
 /** `outdated`: the branch's last run, shown on open until a typeset brings
@@ -88,10 +108,20 @@ const STOP_AFTER_MS = 1000;
 const AGENT_REVIEW_MAX_COMMITS = 20;
 
 /** The plugin panels with a sidebar tab of their own, beside Files, Search,
- *  History and Review; every other one sits in the More menu. */
-const PINNED_PANELS = ['plugin:references', 'plugin:zotero'];
-/** A pinned panel's tab is an icon, like every tab in the row. */
-const PINNED_ICONS: Record<string, typeof IconQuote> = { 'plugin:references': IconQuote, 'plugin:zotero': IconBook };
+ *  History and Review; every other one sits in the More menu.
+ *  Galley: V2 features add theirs after these (FeatureModule.pinnedPanels, by order). */
+const PINNED_PANELS: readonly PinnedPanel[] = [
+  { id: 'plugin:references', title: 'References', icon: IconQuote, order: 100 },
+  { id: 'plugin:zotero', title: 'Zotero', icon: IconBook, order: 200 },
+  { id: 'plugin:mendeley', title: 'Mendeley', icon: IconBookmark, order: 210 }, // Galley: V2 (WP36) Mendeley on the main row
+];
+/** Galley: V2 page host. The feature modules that run, installed (and booted)
+ *  once per tab before the first editor page renders. */
+const MODULES = installFeatures(FEATURES);
+/** Galley: V2 settings page (WP07), over the editor at /p/<id>/settings/<section>. */
+const SettingsPage = lazy(() => import('./Settings'));
+/** Galley: how long a move the branch signalled explains an open file going missing. */
+const MOVES_MEMORY_MS = 15_000;
 const SIDEBAR_HIDDEN = 'aldine.sidebarHidden';
 /** The sidebar's width in px, once someone has dragged it. */
 const SIDEBAR_WIDTH = 'aldine.sidebarWidth';
@@ -107,15 +137,10 @@ const sidebarRoom = (w: number) => Math.max(SIDEBAR_DEFAULT, w);
 /** The preview's width in px, once someone has dragged its divider. */
 const PDF_WIDTH = 'aldine.pdfWidth';
 const pdfDefault = () => Math.max(360, Math.round(window.innerWidth * 0.4));
-/** Source or Visual, the last one this browser chose; Source until then. */
-const EDITOR_MODE = 'aldine.editorMode';
-/** Vim keybindings in the code editor, '1' when on. */
-const VIM = 'aldine.vim';
 /** After a pause this long in anyone's typing the file tree's change marks
  *  are refetched. */
 const TREE_CHANGES_DELAY_MS = 1500;
-/** Change marks in the editor's gutter; on unless turned off. */
-const CHANGE_MARKS = 'aldine.changeMarks';
+// Galley: V2 moved the editor mode, Vim and change-mark keys into the settings store (CORE_SETTING_IDS).
 /** The outline under the file tree, '0' when folded. */
 const OUTLINE_OPEN = 'aldine.outlineOpen';
 const PHONE = '(max-width: 640px)';
@@ -146,15 +171,24 @@ const SESSION_ENDED: ProjectLoadError = { reason: 'signed-out', message: 'Sign i
 const dialogOpen = () => !!document.querySelector('[role="dialog"][aria-modal="true"]');
 
 export default function Editor() {
-  const { id = '' } = useParams();
+  const { id = '', '*': subpath } = useParams(); // Galley: V2 settings routes (/p/:id/settings/…)
   const [params, setParams] = useSearchParams();
   const branch = params.get('branch') || 'main';
   const navigate = useNavigate();
+  const location = useLocation(); // Galley: V2 settings routes (the hash names a setting)
   // Home hands the import result over in history state so the settings
   // panel can say where the compiler choice came from.
-  const imported = (useLocation().state as { import?: ImportedProject['import'] } | null)?.import;
+  // Galley: kept from the first render: opening the settings page replaces the history state.
+  const [imported] = useState(() => (location.state as { import?: ImportedProject['import'] } | null)?.import);
   const toast = useToast();
   const dialogs = useDialogs();
+  // Galley: V2 page host. One feature context per project and branch; its
+  // members read pageSource, which every render refreshes (below, before the
+  // first early return), so features always see the page as it is now.
+  const modules = MODULES;
+  const pageSource = useRef<PageCtxSource | null>(null);
+  const page = useMemo(() => createEditorPageCtx(id, branch, () => pageSource.current!, createEmitter<PageEvents>()), [id, branch]);
+  const compileSeq = useRef(0);
 
   const [project, setProject] = useState<ProjectDetail | null>(null);
   useDocumentTitle(project?.name);
@@ -170,6 +204,8 @@ export default function Editor() {
   const [newEntryKind, setNewEntryKind] = useState<'file' | 'folder' | 'upload' | 'upload-folder'>('file');
   const [commitFocusRequest, setCommitFocusRequest] = useState(0);
   const [activeFile, setActiveFile] = useState<string | null>(null);
+  const activeFileRef = useRef(activeFile); // Galley: V2 page events
+  activeFileRef.current = activeFile;
   const [tab, setTab] = useState<'files' | 'history' | string>('files');
   const [compile, setCompile] = useState<CompileState>({ status: 'idle', result: null });
   const [pdfWidth, setPdfWidth] = useState(() => {
@@ -224,23 +260,22 @@ export default function Editor() {
   const [pluginPanels, setPluginPanels] = useState<PluginPanel[]>([]);
   const [pluginActions, setPluginActions] = useState<PluginErrorsAction[]>([]);
   const [pluginCommands, setPluginCommands] = useState<PluginCommand[]>([]);
-  const [auto, setAuto] = useState(() => safeStorage.get('aldine.autoTypeset') !== '0');
+  // Galley: V2 preferences live in the settings store, on V1's keys and codecs (CORE_SETTING_IDS).
+  const [auto, setAuto] = useSetting<boolean>(CORE_SETTING_IDS.autoTypeset);
   // Auto-typeset runs one engine pass while you type; Typeset and Mod-s run the full cycle.
-  const [draftTypeset, setDraftTypeset] = useState(() => safeStorage.get('aldine.draftTypeset') !== '0');
+  const [draftTypeset, setDraftTypeset] = useSetting<boolean>(CORE_SETTING_IDS.draftTypeset);
   const draftRef = useRef(draftTypeset);
   draftRef.current = draftTypeset;
-  const [stats, setStats] = useState<{ words: number; selWords: number | null }>({ words: 0, selWords: null });
-  const [zoom, setZoomState] = useState(() => {
-    const z = Number(safeStorage.get('aldine.pdfZoom'));
-    return z >= 0.5 && z <= 3 ? z : 1;
-  });
+  // Galley: V2 the live word count is the wordcount feature's (features/wordcount).
+  const [zoom, setZoomSetting] = useSetting<number>(CORE_SETTING_IDS.pdfZoom);
+  // Galley: Ctrl+wheel sends steps faster than renders: each one builds on the last.
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
   const setZoom = useCallback((v: number | ((z: number) => number)) => {
-    setZoomState((prev) => {
-      const next = typeof v === 'function' ? v(prev) : v;
-      safeStorage.set('aldine.pdfZoom', String(next));
-      return next;
-    });
-  }, []);
+    const next = typeof v === 'function' ? v(zoomRef.current) : v;
+    zoomRef.current = next;
+    setZoomSetting(next);
+  }, [setZoomSetting]);
   const [showLog, setShowLog] = useState(false);
   // Warnings alone fold to the panel's header line; errors open it (see errorsFoldAfter).
   const [problemsOpen, setProblemsOpen] = useState(() => safeStorage.get('aldine.problemsOpen') === '1');
@@ -270,7 +305,9 @@ export default function Editor() {
   const [publishProvider, setPublishProvider] = useState<RemoteProviderId | undefined>();
   const [reopenAccess, setReopenAccess] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState<boolean | 'shortcuts'>(false);
+  // Galley: V2 settings page, a route over the editor (/p/<id>/settings/<section>) instead of a dialog.
+  const subpage = editorSubpage(subpath);
+  const settingsRoute = subpage.kind === 'settings';
   const keys = { typeset: useShortcutLabel('typeset'), comment: useShortcutLabel('comment'), jump: useShortcutLabel('jump'), search: useShortcutLabel('search') };
   const [searchFocus, setSearchFocus] = useState<SearchFocus | null>(null);
   /** Bumped when an Undo puts back text the project search found matches in. */
@@ -301,7 +338,12 @@ export default function Editor() {
   // The editor, the PDF or both: chosen with the toolbar's toggle and
   // remembered; until then a narrow window opens on the editor alone. A
   // phone has room for one, switched from the panes' headers for this visit.
-  const [chosenLayout, setLayout] = useState<Layout | null>(readLayout);
+  // Galley: V2 the remembered layout is a setting ('' or unknown: the width decides); a
+  // reveal (setLayout) shows a pane for now without remembering it, until the setting changes.
+  const [layoutSetting, setLayoutSetting] = useSetting<string>(CORE_SETTING_IDS.layout);
+  const rememberedLayout = LAYOUTS.find((l) => l.id === layoutSetting)?.id ?? null;
+  const [revealed, setLayout] = useState<{ from: Layout | null; layout: Layout } | null>(null);
+  const chosenLayout: Layout | null = revealed && revealed.from === rememberedLayout ? revealed.layout : rememberedLayout;
   const [winWidth, setWinWidth] = useState(() => window.innerWidth);
   const [phone, setPhone] = useState(() => { try { return window.matchMedia(PHONE).matches; } catch { return false; } });
   const [phoneView, setPhoneView] = useState<'editor' | 'pdf'>('editor');
@@ -314,37 +356,32 @@ export default function Editor() {
     return () => window.removeEventListener('resize', onResize);
   }, []);
   const shown: Layout = phone ? phoneView : shownLayout(chosenLayout, winWidth);
-  const chooseLayout = (l: Layout) => { setLayout(l); rememberLayout(l); };
+  const chooseLayout = (l: Layout) => { setLayout(null); setLayoutSetting(l); }; // Galley: V2 layout setting
   /** Shows the pane a jump lands in when it is hidden: for now, not as the remembered choice. */
   const revealRef = useRef<(want: 'editor' | 'pdf') => void>(() => {});
   revealRef.current = (want) => {
     if (phone) setPhoneView(want);
-    else if (revealLayout(shown, want) !== shown) setLayout(revealLayout(shown, want));
+    else if (revealLayout(shown, want) !== shown) setLayout({ from: rememberedLayout, layout: revealLayout(shown, want) }); // Galley: V2 layout setting
   };
   const openFile = useCallback((path: string) => {
     setActiveFile(path);
     if (window.matchMedia('(max-width: 640px)').matches) setSidebarHidden(true);
     revealRef.current('editor');
   }, []);
-  const [spellcheck, setSpellcheck] = useState(() => safeStorage.get(SPELLCHECK) !== '0');
-  const toggleSpellcheck = useCallback(() => setSpellcheck((s) => { safeStorage.set(SPELLCHECK, s ? '0' : '1'); return !s; }), []);
-  const [spellLang, setSpellLangState] = useState(() => { const l = safeStorage.get(SPELLCHECK_LANG); return spellLangKnown(l) ? l : ''; });
-  const setSpellLang = useCallback((l: string) => {
-    setSpellLangState(l);
-    if (l) safeStorage.set(SPELLCHECK_LANG, l); else safeStorage.remove(SPELLCHECK_LANG);
-  }, []);
-  const [vim, setVim] = useState(() => safeStorage.get(VIM) === '1');
-  const toggleVim = useCallback(() => setVim((v) => { safeStorage.set(VIM, v ? '0' : '1'); return !v; }), []);
-  const [changeMarks, setChangeMarks] = useState(() => safeStorage.get(CHANGE_MARKS) !== '0');
-  const toggleChangeMarks = useCallback(() => setChangeMarks((v) => { safeStorage.set(CHANGE_MARKS, v ? '0' : '1'); return !v; }), []);
+  // Galley: V2 preferences from the settings store (CORE_SETTING_IDS), on V1's keys and codecs.
+  const [spellcheck, setSpellcheck] = useSetting<boolean>(CORE_SETTING_IDS.spellcheck);
+  const toggleSpellcheck = useCallback(() => setSpellcheck(!spellcheck), [spellcheck, setSpellcheck]);
+  // '' follows the browser's language
+  const [spellLang, setSpellLang] = useSetting<string>(CORE_SETTING_IDS.spellLang);
+  const [vim, setVim] = useSetting<boolean>(CORE_SETTING_IDS.vim);
+  const toggleVim = useCallback(() => setVim(!vim), [vim, setVim]);
+  const [changeMarks, setChangeMarks] = useSetting<boolean>(CORE_SETTING_IDS.changeMarks);
+  const toggleChangeMarks = useCallback(() => setChangeMarks(!changeMarks), [changeMarks, setChangeMarks]);
   // Agent-edit fade highlights are behind an experimental flag (presence chip is not).
-  const agentPresenceEnabled = safeStorage.get('aldine.experimental.agentPresence') === '1';
-  const [mode, setMode] = useState<EditorMode>(() => {
-    return safeStorage.get(EDITOR_MODE) === 'visual' ? 'visual' : 'source';
-  });
+  const [agentPresenceEnabled, setAgentPresence] = useSetting<boolean>(CORE_SETTING_IDS.agentPresence);
+  const [mode, setMode] = useSetting<EditorMode>(CORE_SETTING_IDS.editorMode);
   const switchMode = (m: EditorMode) => {
     setMode(m);
-    safeStorage.set(EDITOR_MODE, m);
     // after the palette that ran it has closed, or off the button that was clicked
     requestAnimationFrame(() => codeRef.current?.focus());
   };
@@ -388,6 +425,16 @@ export default function Editor() {
   /** The full typeset a draft owes, armed when it reports needsFullRun. */
   const fullTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastLocalEditAt = useRef(0);
+  // Galley: V2 integrator: what a reconnection reads to decide on one typeset (autoTypeset.ts retypesetOnReconnect)
+  const syncRef = useRef(sync);
+  syncRef.current = sync;
+  /** The last typeset failed because the server could not be reached. */
+  const networkFailedRef = useRef(false);
+  /** When the newest finished run that saw every local edit started. */
+  const coveredAtRef = useRef(0);
+  /** The running typeset started with the link up and every local edit confirmed. */
+  const runSeesRef = useRef(true);
+  const reconnectedRef = useRef(reconnectWatch());
   /** The branch on screen, for a typeset that finishes after a switch. */
   const branchRef = useRef(branch);
   const autoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -478,9 +525,9 @@ export default function Editor() {
   // The project list's "opened" and, for a share-link visitor, its listing.
   useEffect(() => { api.markOpened(id, branch).catch(() => { /* the list is a convenience */ }); }, [id, branch]);
 
-  // Whole-document word count (the include graph from the root file). The
-  // status bar swaps the active file's server count for the live editor count,
-  // so the total stays current while typing without refetching.
+  // Whole-document word count (the include graph from the root file).
+  // Galley: V2 shows the count from features/wordcount; here it only orders
+  // the review threads by file (the include graph's order).
   const [docWords, setDocWords] = useState<{ total: number; files: Record<string, number> } | null>(null);
   const docWordsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const treeChangesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -632,6 +679,7 @@ export default function Editor() {
     }
     retryTimer.current = null;
     compilingRef.current = true;
+    page.events.emit('compileRequested', { seq: ++compileSeq.current, trigger: trigger === 'adopted' ? 'auto' : trigger }); // Galley: V2 page event
     // The server flushes every edit it has when this run starts, so a local
     // auto-typeset still armed for them would only queue a second, no-op run.
     if (autoTimer.current && pendingSource.current === 'local' && cancelsArmedTypeset(lastLocalEditAt.current, Date.now())) {
@@ -647,6 +695,8 @@ export default function Editor() {
     invalidateLabelCache();
     setCompile((c) => ({ ...c, status: 'compiling' }));
     const t0 = Date.now();
+    const sees = runSeesLocalEdits(syncRef.current?.state ?? null); // Galley: V2 integrator: reconnection retypeset
+    runSeesRef.current = sees; // Galley: V2 integrator
     try {
       const result = await api.compile(id, branch, opts?.reason, draft ? 'draft' : undefined, clean);
       // The user may have switched branch while this ran: the result belongs
@@ -654,6 +704,8 @@ export default function Editor() {
       if (branchRef.current !== branch) return;
       shownRunIdRef.current = result.runId;
       setCompile({ status: result.ok ? 'ok' : 'error', result, wallMs: Date.now() - t0, trigger });
+      networkFailedRef.current = false; // Galley: V2 integrator: the server answered
+      if (sees) coveredAtRef.current = t0; // Galley: V2 integrator
       dismissToast('typeset-failed');
       if (result.needsFullRun) {
         fullTimer.current = setTimeout(() => { fullTimer.current = null; doCompile(0, { trigger: 'auto' }); }, FULL_AFTER_DRAFT_MS);
@@ -672,6 +724,7 @@ export default function Editor() {
       // The server words "the compiler is down" itself (503); anything else
       // gets said what it was about.
       const message = err instanceof ApiError && err.status === 503 ? err.message : `Typesetting failed: ${err.message}`;
+      networkFailedRef.current = err instanceof ApiError && isNetworkFailure(err.status); // Galley: V2 integrator: retried once on reconnection
       setCompile({ status: 'error', result: null, requestError: message });
       // One at a time: every pause while typing would add another.
       toast(message, 'error', { label: 'Try again', testId: 'typeset-retry', key: 'typeset-failed', onClick: () => doCompileRef.current() });
@@ -690,7 +743,7 @@ export default function Editor() {
         setTimeout(() => doCompileRef.current(0, queuedClean ? { clean: true, trigger: queued } : full ? { trigger: queued } : { draft: draftRef.current, trigger: queued }), 400);
       }
     }
-  }, [id, branch]);
+  }, [id, branch, page]); // Galley: V2 page event
   const doCompileRef = useRef(doCompile);
   doCompileRef.current = doCompile;
 
@@ -768,10 +821,11 @@ export default function Editor() {
     docWordsTimer.current = setTimeout(refreshDocWords, 3000);
     if (treeChangesTimer.current) clearTimeout(treeChangesTimer.current);
     treeChangesTimer.current = setTimeout(() => setTreeChangesTick((v) => v + 1), TREE_CHANGES_DELAY_MS);
+    if (activeFileRef.current) page.events.emit('docChanged', { path: activeFileRef.current, local }); // Galley: V2 page event
     if (!local) return;
     lastLocalEditAt.current = Date.now();
     armAutoTypeset('local');
-  }, [armAutoTypeset, refreshDocWords]);
+  }, [armAutoTypeset, refreshDocWords, page]);
 
   useEffect(() => () => {
     if (autoTimer.current) clearTimeout(autoTimer.current);
@@ -780,6 +834,22 @@ export default function Editor() {
     if (docWordsTimer.current) clearTimeout(docWordsTimer.current);
     if (treeChangesTimer.current) clearTimeout(treeChangesTimer.current);
   }, []);
+
+  // Galley: V2 integrator: when the link comes back after a loss, typeset once if the preview is behind
+  // (the last typeset failed for want of the server, or edits since); a running blind typeset queues it.
+  useEffect(() => {
+    if (!sync || !reconnectedRef.current(sync.key, sync.state)) return;
+    if (retypesetOnReconnect({
+      auto: autoRef.current,
+      hasTex: hasTexRef.current,
+      armed: !!autoTimer.current || !!fullTimer.current || !!retryTimer.current,
+      running: compilingRef.current,
+      runSees: runSeesRef.current,
+      networkFailed: networkFailedRef.current,
+      lastLocalEditAt: lastLocalEditAt.current,
+      coveredAt: coveredAtRef.current,
+    })) doCompileRef.current(0, { draft: draftRef.current, trigger: 'auto' });
+  }, [sync]);
 
   // The file tree's change marks, against the gutter's baseline: refetched
   // after a pause in anyone's typing, on a commit or checkpoint
@@ -803,6 +873,8 @@ export default function Editor() {
   /** The agent's session on the branch, whichever file is open (the branch signal's awareness). */
   const [branchAgent, setBranchAgent] = useState<{ key: string; agent: BranchAgent } | null>(null);
   const liveAgent = branchAgent?.key === `${id}::${branch}` ? branchAgent.agent : null;
+  const liveAgentFiles = useRef<string[]>([]); // Galley: V2 page event agentWrite
+  liveAgentFiles.current = liveAgent?.files ?? [];
   const agentPresent = !!liveAgent || users.some((u) => u.isAgent);
   const unseen = useAgentUnseen(id, branch, authEnabled);
   const refreshUnseen = unseen.refresh;
@@ -893,7 +965,7 @@ export default function Editor() {
         const n = batch.fileCount;
         const scope = batch.commitCount > batch.commits.length ? ` in ${batch.commitCount}${batch.truncated ? '+' : ''} commits` : '';
         reviewShown.current = batch;
-        toast(`${agentName(batch.commits.map((c) => c.onBehalfOf))} edited ${n} file${n === 1 ? '' : 's'}${scope}`, 'info', {
+        toast(`${agentBatchName(batch.commits)} edited ${n} file${n === 1 ? '' : 's'}${scope}`, 'info', {
           label: 'Review',
           testId: 'agent-session-review',
           key: 'agent-review',
@@ -947,7 +1019,7 @@ export default function Editor() {
         const scope = res.commitCount > res.commits.length ? ` in ${res.commitCount}${res.truncated ? '+' : ''} commits` : '';
         const when = res.since ? 'while you were away' : 'in this project';
         reviewShown.current = res;
-        toast(`${agentName(res.commits.map((c) => c.onBehalfOf))} edited ${n} file${n === 1 ? '' : 's'}${scope} ${when}`, 'info', {
+        toast(`${agentBatchName(res.commits)} edited ${n} file${n === 1 ? '' : 's'}${scope} ${when}`, 'info', {
           label: 'Review',
           testId: 'agent-away-review',
           // One review prompt at a time: a session ending replaces this one.
@@ -1031,11 +1103,7 @@ export default function Editor() {
     }
   }, [id, branch, toast, openAgentReview, recordSeen]);
 
-  const toggleAuto = () => {
-    const next = !auto;
-    setAuto(next);
-    safeStorage.set('aldine.autoTypeset', next ? '1' : '0');
-  };
+  const toggleAuto = () => setAuto(!auto); // Galley: V2 setting (typesetting.auto, V1's key)
 
   const switchBranch = (name: string) => {
     setParams(name === 'main' ? {} : { branch: name });
@@ -1052,7 +1120,13 @@ export default function Editor() {
     ownAgentRun.current = false;
   }, [id, branch, clearAgentWatchdog]);
 
-  const saveName = useCallback(async (name: string) => {
+  const projectName = project?.name;
+  /** Galley: resolves with the project's name when a feature took the rename
+   *  over (V2 interceptors), which may have kept the old one. */
+  const saveName = useCallback(async (name: string): Promise<string | undefined> => {
+    if (projectName !== undefined && (await interceptProjectRename(modules, { from: projectName, to: name.trim() }, page)) === 'handled') {
+      return (await loadProject())?.name ?? projectName;
+    }
     try {
       const p = await api.patchProject(id, { name: name.trim() });
       setProject((prev) => (prev ? { ...prev, name: p.name } : prev));
@@ -1060,13 +1134,15 @@ export default function Editor() {
       toast(`Could not rename: ${err.message}`, 'error');
       throw err;
     }
-  }, [id, toast]);
+    return undefined;
+  }, [id, toast, projectName, modules, page, loadProject]);
 
   const renameProject = async (el: HTMLElement, name: string) => {
     if (!project || !name.trim() || name === project.name) return;
     // The name lives in a contentEditable React doesn't control, so a
     // rejected rename would otherwise leave the refused text on screen.
-    await saveName(name).catch(() => { el.textContent = project.name; });
+    const kept = await saveName(name).catch(() => { el.textContent = project.name; return undefined; });
+    if (kept !== undefined) el.textContent = kept; // Galley: V2 interceptors
   };
 
   /** `typeset`: run one now, not only when a PDF is on screen. */
@@ -1232,7 +1308,11 @@ export default function Editor() {
     shownRunIdRef.current = st.result.runId;
     setCompile({ status: st.result.ok ? 'ok' : 'error', result: st.result, trigger: 'adopted' });
   }, [id, branch]);
-  const onAgentWrite = useCallback(() => armAutoTypeset('agent'), [armAutoTypeset]);
+  const onAgentWrite = useCallback(() => {
+    armAutoTypeset('agent');
+    // Galley: V2 page event; the paths are the ones the agent's session names (its last minute's).
+    page.events.emit('agentWrite', { paths: liveAgentFiles.current });
+  }, [armAutoTypeset, page]);
   const onCommitted = useCallback(() => { bumpHistory(); refreshUnseen(); }, [bumpHistory, refreshUnseen]);
   const onAgent = useCallback((agent: BranchAgent | null) => setBranchAgent(agent ? { key: `${id}::${branch}`, agent } : null), [id, branch]);
   const onAgentTypesetStarted = useCallback(() => {
@@ -1270,6 +1350,27 @@ export default function Editor() {
     { name: identity.name, color: identity.color, avatar: 'avatar' in identity ? identity.avatar : undefined, file: activeFile },
   );
   signal.current = signalHandle;
+  // Galley: V2 keyed branch signals. A project settings write (WP03 sends
+  // 'settings'): refetch them, then tell the features which ones changed.
+  useEffect(() => signalHandle.onSignal(PROJECT_SETTINGS_SIGNAL, () => {
+    let changed: Promise<string[]>;
+    try { changed = refreshProjectSettings(); } catch (err) { console.warn('[laytekz] project settings could not be refreshed', err); return; }
+    changed.then((ids) => { if (ids.length) page.events.emit('projectSettingsChanged', { ids }); }, () => { /* the next write signals again */ });
+  }), [signalHandle, page]);
+  // Galley: V2 keyed branch signals. Files moved on the server ('moves', a
+  // rename's commit): the open file follows, then the editor's own state
+  // (file spots, parked docs), then the features.
+  const recentMoves = useRef<{ moves: [string, string][]; at: number }[]>([]);
+  useEffect(() => signalHandle.onSignal(FILES_MOVED_SIGNAL, (value) => {
+    const moved = parseFilesMoved(value);
+    if (!moved?.moves.length) return;
+    const now = Date.now();
+    recentMoves.current = [...recentMoves.current.filter((m) => now - m.at < MOVES_MEMORY_MS), { moves: moved.moves, at: now }];
+    setActiveFile((cur) => (cur ? remapPath(cur, moved.moves) : cur));
+    try { onFilesMoved(id, branch, moved.moves); } catch (err) { console.warn('[laytekz] the editor could not follow the moved files', err); }
+    page.events.emit('filesMoved', { moves: moved.moves, by: moved.by });
+    void loadFiles();
+  }), [signalHandle, page, id, branch, loadFiles]);
   useEffect(() => {
     const onVisible = () => { if (document.visibilityState === 'visible') loadFiles(); };
     document.addEventListener('visibilitychange', onVisible);
@@ -1283,6 +1384,10 @@ export default function Editor() {
   useEffect(() => {
     if (!filesLoaded || !activeFile || (localRemoval.current && within(activeFile, localRemoval.current))) return;
     if (files.some((f) => f.path === activeFile)) return;
+    // Galley: V2 a file the branch signalled as moved follows its new path, without the toast.
+    const now = Date.now();
+    const moved = recentMoves.current.filter((m) => now - m.at < MOVES_MEMORY_MS).reduce((p, m) => remapPath(p, m.moves), activeFile);
+    if (moved !== activeFile && files.some((f) => f.path === moved)) { setActiveFile(moved); return; }
     const next = files.find((e) => e.path === project?.rootFile)
       || files.find((e) => e.type === 'file' && /\.tex$/i.test(e.path))
       || files.find((e) => isUserFile(e) && !e.binary);
@@ -1393,19 +1498,21 @@ export default function Editor() {
   }, [setSidebar, markComment]);
 
   const revealComment = useCallback((c: Comment) => {
+    page.events.emit('commentRevealed', { id: c.id }); // Galley: V2 (WPX1) review event
     openFile(c.file);
     // The quote finds the text after edits moved it; selectRange waits for a
     // freshly opened file's doc to sync. The delay lets codeRef reach the new pane.
     requestAnimationFrame(() => setTimeout(() => codeRef.current?.selectRange(c.anchor.from, c.anchor.to, { quote: c.anchor.quote, focus: true }), 80));
-  }, [openFile]);
+  }, [openFile, page]); // Galley: V2 (WPX1)
 
   // ---- project search ----
   /** The Search tab, with its query (or replace) field focused and selected;
    *  a one-line selection in the editor becomes the query. */
-  const openSearch = useCallback((seed?: string, field: SearchFocus['field'] = 'query') => {
+  // Galley: V2 (WP20) `regex`: the seed is a pattern (Find references), searched as one this time only.
+  const openSearch = useCallback((seed?: string, field: SearchFocus['field'] = 'query', regex?: boolean) => {
     setTab('search');
     setSidebar(false);
-    setSearchFocus((f) => ({ n: (f?.n ?? 0) + 1, seed, field }));
+    setSearchFocus((f) => ({ n: (f?.n ?? 0) + 1, seed, field, ...(regex ? { regex } : {}) }));
   }, [setSidebar]);
 
   const openMatch = useCallback((path: string, m: SearchMatch, focusEditor: boolean) => {
@@ -1710,7 +1817,7 @@ export default function Editor() {
       {
         id: 'draft-typeset', group: 'Actions',
         title: draftTypeset ? 'Auto-typeset: run the full cycle every time (slower)' : 'Auto-typeset: quick draft while typing',
-        run: () => setDraftTypeset((d) => { safeStorage.set('aldine.draftTypeset', d ? '0' : '1'); return !d; }),
+        run: () => setDraftTypeset(!draftTypeset), // Galley: V2 setting (typesetting.draft, V1's key)
       },
       { id: 'jump-pdf', group: 'Actions', title: 'Jump PDF to cursor', hint: keys.jump, run: () => jumpToPdf() },
       { id: 'jump-source', group: 'Actions', title: 'Jump to source: the middle of the PDF preview', run: jumpToSource },
@@ -1734,8 +1841,9 @@ export default function Editor() {
       { id: 'change-marks', group: 'Actions', title: `${changeMarks ? 'Hide' : 'Show'} the lines and files changed since the last ${project?.manualCommits ? 'commit' : 'checkpoint'}`, keywords: 'diff gutter changes file tree', run: toggleChangeMarks },
       { id: 'vim', group: 'Actions', title: vim ? 'Turn Vim keybindings off' : 'Turn Vim keybindings on', run: () => { toggleVim(); requestAnimationFrame(() => codeRef.current?.focus()); } },
       ...appearanceCommands(appearance),
-      { id: 'settings', group: 'View', title: 'Project settings: compiler, main document, TeX Live', run: () => setSettingsOpen(true) },
-      { id: 'shortcuts', group: 'View', title: 'Change keyboard shortcuts…', run: () => setSettingsOpen('shortcuts') },
+      // Galley: V2 settings page (also ⌘, through the 'settings' keybinding)
+      { id: 'settings', group: 'View', title: 'Project settings: compiler, main document, TeX Live', run: () => requestOpenSettings({ section: 'project' }) },
+      { id: 'shortcuts', group: 'View', title: 'Change keyboard shortcuts…', run: () => requestOpenSettings({ section: 'shortcuts' }) },
       { id: 'sidebar', group: 'View', title: sidebarHidden ? 'Show the sidebar' : 'Hide the sidebar', run: () => setSidebar(!sidebarHidden) },
       ...(phone
         ? [shown === 'pdf'
@@ -1772,9 +1880,10 @@ export default function Editor() {
           },
         }]
         : []),
+      // Galley: V2 setting (labs.agentPresence, V1's key); the editor reads it when it opens, hence the reload
       ...(agentPresenceEnabled
-        ? [{ id: 'experimental-agent-off', group: 'View', title: 'Disable experimental agent edit highlights', run: () => { safeStorage.set('aldine.experimental.agentPresence', '0'); location.reload(); } }]
-        : [{ id: 'experimental-agent', group: 'View', title: 'Enable experimental agent edit highlights', run: () => { safeStorage.set('aldine.experimental.agentPresence', '1'); location.reload(); } }]),
+        ? [{ id: 'experimental-agent-off', group: 'View', title: 'Disable experimental agent edit highlights', run: () => { setAgentPresence(false); window.location.reload(); } }]
+        : [{ id: 'experimental-agent', group: 'View', title: 'Enable experimental agent edit highlights', run: () => { setAgentPresence(true); window.location.reload(); } }]),
       { id: 'show-history', group: 'Git', title: 'Show history', keywords: 'versions checkpoints commits', run: () => { setTab('history'); setSidebar(false); } },
       { id: 'review-claude', group: 'Git', title: 'Review Claude’s recent edits', keywords: 'agent ai claude session revert undo', run: () => { void reviewClaudeEdits(); } },
       { id: 'commit', group: 'Git', title: 'Save a checkpoint…', keywords: 'history versions commit', run: () => { setTab('history'); setSidebar(false); setCommitFocusRequest((n) => n + 1); } },
@@ -1823,6 +1932,8 @@ export default function Editor() {
         id: 'rename-file', group: 'Project', title: `Rename ${activeFile}…`, run: async () => {
           const to = (await dialogs.prompt({ title: `Rename ${activeFile}`, value: activeFile, confirmLabel: 'Rename', selectFrom: activeFile.lastIndexOf('/') + 1, selectTo: stemEnd(activeFile) }))?.trim();
           if (to && to !== activeFile) {
+            // Galley: V2 interceptors: a feature that takes the rename over does all of it (the moves signal follows the file).
+            if ((await interceptFileRename(modules, { from: activeFile, to, via: 'palette' }, page)) !== 'default') return;
             try {
               await api.renameFile(id, branch, activeFile, to);
             } catch (err: any) {
@@ -1855,7 +1966,7 @@ export default function Editor() {
     }
     for (const s of [
       { id: 'fig', title: 'Insert figure', text: '\\begin{figure}[htbp]\n  \\centering\n  \\includegraphics[width=0.8\\linewidth]{}\n  \\caption{}\n  \\label{fig:}\n\\end{figure}\n' },
-      { id: 'tab', title: 'Insert table', text: '\\begin{table}[htbp]\n  \\centering\n  \\begin{tabular}{ll}\n    \\hline\n    A & B \\\\\n    \\hline\n  \\end{tabular}\n  \\caption{}\n  \\label{tab:}\n\\end{table}\n' },
+      // Galley: V2 (WP18) "Insert table…" is the tables feature's command (tables.insert), which opens the grid picker.
       { id: 'eq', title: 'Insert equation', text: '\\begin{equation}\n  \\label{eq:}\n\\end{equation}\n' },
     ]) {
       cmds.push({ id: `snippet-${s.id}`, group: 'Insert', title: s.title, run: () => insertAtCursor(s.text) });
@@ -1870,7 +1981,93 @@ export default function Editor() {
     // Someone here on a share link may not reconfigure the project: these would only be refused.
     if (authEnabled && project && !project.isMember) return cmds.filter((c) => !VISITOR_REFUSES.has(c.id) && !c.id.startsWith('engine-'));
     return cmds;
-  }, [pluginCommands, files, activeFile, id, branch, auto, spellcheck, vim, toggleVim, changeMarks, toggleChangeMarks, doCompile, toggleAuto, jumpToPdf, jumpToSource, compile.result != null, setEngine, setStopOnFirstError, project?.stopOnFirstError, setManualCommits, project?.manualCommits, project?.remote, project?.readOnly, project?.isOwner, project?.isMember, authEnabled, insertAtCursor, loadFiles, loadProject, toast, ignored, setIgnored, draftTypeset, startComment, keys.typeset, keys.jump, keys.comment, keys.search, openSearch, sidebarHidden, setSidebar, mode, paneMode, appearance, reviewClaudeEdits, onDeleted, identity, project?.rootFile, project?.canEdit, previewing, phone, shown, formatDocument]);
+  }, [pluginCommands, files, activeFile, id, branch, auto, spellcheck, vim, toggleVim, changeMarks, toggleChangeMarks, doCompile, toggleAuto, jumpToPdf, jumpToSource, compile.result != null, setEngine, setStopOnFirstError, project?.stopOnFirstError, setManualCommits, project?.manualCommits, project?.remote, project?.readOnly, project?.isOwner, project?.isMember, authEnabled, insertAtCursor, loadFiles, loadProject, toast, ignored, setIgnored, draftTypeset, startComment, keys.typeset, keys.jump, keys.comment, keys.search, openSearch, sidebarHidden, setSidebar, mode, paneMode, appearance, reviewClaudeEdits, onDeleted, identity, project?.rootFile, project?.canEdit, previewing, phone, shown, formatDocument,
+    setDraftTypeset, setAgentPresence, agentPresenceEnabled, modules, page]); // Galley: V2 settings and interceptors
+
+  // ---- Galley: V2 page host (WP06): feature commands, keys, lifecycles, events ----
+  const role: CommandRole = { showcase: !!project?.readOnly, viewer: authEnabled && project?.canEdit === false };
+  const roleRef = useRef(role);
+  roleRef.current = role;
+  /** Every feature's commands and the settings' "Turn … on/off", for this page now. */
+  const featureDefs = useCallback((): CommandDef[] => {
+    let toggles: CommandDef[] = [];
+    try { toggles = settingToggleCommands(SETTINGS.values()); } catch { /* no command adapter: no toggles */ }
+    return [...featureCommandDefs(modules, page), ...toggles];
+  }, [modules, page]);
+  /** The palette's rows for them, refused and hidden ones left out, with their keys as hints. */
+  const featureRows = (): Command[] => {
+    const defs = featureDefs();
+    try {
+      return paletteCommands(defs, { page, showcase: role.showcase, viewer: role.viewer });
+    } catch {
+      return plainPaletteRows(defs, role, page);
+    }
+  };
+  const paletteRows = paletteOpen ? [...commands, ...featureRows()] : commands;
+  const commandsRef = useRef(commands);
+  commandsRef.current = commands;
+  /** Runs a command by id (a feature's first, then the page's own); false when none may run here. */
+  const runCommand = useCallback((cid: string): boolean => {
+    const def = featureDefs().find((d) => d.id === cid);
+    if (def) {
+      if (!commandAllowed(def, roleRef.current, page)) return false;
+      def.run();
+      return true;
+    }
+    const own = commandsRef.current.find((c) => c.id === cid);
+    if (!own) return false;
+    own.run();
+    return true;
+  }, [featureDefs, page]);
+  usePageKeys(runCommand);
+
+  // The settings store's project scope follows the page.
+  const projectLoaded = !!project;
+  const projectSettingsEditable = !!project && !project.readOnly && (!authEnabled || (!!project.isMember && project.canEdit !== false));
+  // A layout effect too: the panes read project settings in their own effects.
+  useLayoutEffect(() => {
+    if (!projectLoaded) return;
+    try { setSettingsProject({ projectId: id, canEdit: projectSettingsEditable }); } catch (err) { console.warn('[laytekz] project settings are unavailable', err); }
+  }, [id, projectLoaded, projectSettingsEditable]);
+  useEffect(() => () => { try { setSettingsProject(null); } catch { /* as above */ } }, []);
+
+  // Features activate once the project has loaded, per project and branch,
+  // before any event fires for it: a layout effect, because the commit that
+  // brings the project can also start the panes' own effects (the PDF pane's
+  // on-open typeset emits compileRequested), and those run before this
+  // component's passive effects.
+  useLayoutEffect(() => (projectLoaded ? activateFeatures(modules, page) : undefined), [modules, page, projectLoaded]);
+  useEffect(() => { page.events.emit('activeFile', { path: activeFile }); }, [page, activeFile]);
+  useEffect(() => { if (filesLoaded) page.events.emit('filesChanged', {}); }, [page, files, filesLoaded]);
+  useEffect(() => { if (project) page.events.emit('projectChanged', {}); }, [page, project]);
+  useEffect(() => { page.events.emit('rosterChanged', {}); }, [page, peers, users]);
+  useEffect(() => { page.events.emit('commentsChanged', {}); }, [page, comments]);
+  useEffect(() => {
+    if (!compile.result) return;
+    const trigger = compile.trigger ?? 'user';
+    page.events.emit('compileFinished', { result: compile.result, trigger, own: trigger !== 'adopted' });
+  }, [page, compile.result]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const onVisibility = () => page.events.emit('visibility', { visible: document.visibilityState === 'visible' });
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [page]);
+
+  // The seams with CodePane and PdfPane (WP05): absent there, no feature runs.
+  const userId = authEnabled ? user?.id ?? null : null;
+  const codeFeatureHost = useMemo<CodePaneFeatureHost>(() => ({
+    modules, page: () => page, userId, notify: page.toast, openSettings: page.openSettings, runCommand,
+  }), [modules, page, userId, runCommand]);
+  const pdfFeatureHost = useMemo<PdfPaneFeatureHost>(() => ({
+    modules, page: () => page, onTextSelection: (selection) => page.events.emit('pdfSelection', { selection }),
+  }), [modules, page]);
+  // Sidebar tabs: the core pinned plugin panels, the features' pinned ones, and the features' own panels.
+  const pinnedPlugins = useMemo(() => pinnedPluginPanels(PINNED_PANELS, modules), [modules]);
+  const [mountedPanels, setMountedPanels] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(() => {
+    if (!mountedPanels.has(tab)) setMountedPanels((s) => new Set(s).add(tab));
+  }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
+  // ---- end of the V2 page host's hooks ----
 
   const allProblems = compile.result?.errors?.filter((e) => e.type !== 'typesetting') || [];
   const errors = allProblems.filter((e) => e.type !== 'warning' || !ignored.includes(warningKey(e.message)));
@@ -1882,6 +2079,21 @@ export default function Editor() {
   // A stopped run has nothing to fix; the status line says it stopped.
   const showErrors = compile.result != null && !compile.result.stopped && (errors.length > 0 || !compile.result.ok || layout.length > 0);
   const problemsFoldable = errCount === 0 && compile.result?.ok === true;
+  // Galley: the run's outcome (time, errors, out of date) opens the log. It sits in the bar under
+  // the editor beside View log; the PDF header clipped it.
+  const typesetOutcome = (compile.status === 'ok' || compile.status === 'error' || (compile.status === 'idle' && compile.outdated)) && compile.result && !agentTypesetting ? (
+<span className="typeset-outcome" data-testid="pdf-status">
+    <button className="pdf-status__log" onClick={() => setShowLog(true)} title="View the typesetting log" data-testid="pdf-status-log">
+      {compile.status === 'idle' && <><span className="dot dot--warn" /> Out of date</>}
+      {compile.status === 'ok' && <><span className="dot dot--ok" /> <span className="pdf-status__verb">Typeset in </span>{((compile.wallMs ?? compile.result.durationMs) / 1000).toFixed(1)}s{compile.result.needsFullRun && (
+        <span className="pdf-status__draft" data-testid="draft-pending" title="A quick single pass while you type. References and the bibliography settle in a full typeset a few seconds after you stop, or when you press Typeset."> · draft, references next</span>
+      )}</>}
+      {compile.status === 'error' && (compile.result.stopped
+        ? <><span className="dot dot--warn" /> Stopped</>
+        : <><span className="dot dot--error" /> {errCount > 0 ? `${errCount} error${errCount === 1 ? '' : 's'}` : 'Failed'}</>)}
+    </button>
+    </span>
+  ) : null;
   // Bad boxes and nothing else: the panel's header is the Layout group's.
   const layoutOnly = problemsFoldable && warnCount === 0 && layout.length > 0;
   // Errors from a run auto-typeset made while you type fold to the header.
@@ -1911,6 +2123,58 @@ export default function Editor() {
       setCopying(false);
     }
   };
+  // Galley: V2 page host. What the feature context reads, refreshed on every
+  // render; set before any early return, since slot items render below and
+  // effects run after.
+  pageSource.current = {
+    project: () => project,
+    user: () => (authEnabled ? user : null),
+    canEdit: () => !!project && !project.readOnly && !(authEnabled && project.canEdit === false),
+    showcase: () => !!project?.readOnly,
+    activeFile: () => activeFileRef.current,
+    view: () => codeRef.current?.view() ?? null,
+    files: () => files,
+    openFile: (path, at) => {
+      openFile(path);
+      if (!at || (at.line == null && at.pos == null && !at.find)) return;
+      // The pane for `path` mounts on a later render; wait for it, as the deep link does.
+      const go = (tries: number) => {
+        const code = codeRef.current;
+        if (!code || activeFileRef.current !== path) { if (tries < 40) setTimeout(() => go(tries + 1), 50); return; }
+        if (at.line != null) code.gotoLine(at.line);
+        else if (at.pos != null) code.revealPos(at.pos);
+        else if (at.find) code.selectRange(0, at.find.length, { quote: at.find, focus: true });
+      };
+      requestAnimationFrame(() => setTimeout(() => go(0), 60));
+    },
+    insertAtCursor: (text) => insertAtCursor(text),
+    editDocument: (edit, done) => codeRef.current?.editDocument(edit, done),
+    compile: (o) => { void doCompile(0, o?.clean ? { clean: true } : undefined); },
+    lastCompile: () => compile.result,
+    pdf: () => pdfRef.current?.pdf() ?? null,
+    ui: {
+      layout: () => shown,
+      sidebarHidden: () => sidebarHidden,
+      phone: () => phone,
+      showPanel: (panelId, query) => {
+        if (panelId === 'search') { openSearch(query, 'query', takeRegexSeed(query)); return; } // Galley: V2 (WP20)
+        setTab(panelId);
+        // unfolded for this visit only; a phone's sidebar is an overlay over the code
+        if (!window.matchMedia('(max-width: 640px)').matches) setSidebarHidden(false);
+      },
+    },
+    peers: () => peers,
+    comments: () => comments,
+    toast: (text, kind, action) => toast(text, kind, action ? { label: action.label, onClick: () => action.run() } : undefined),
+    confirm: (o) => dialogs.confirm(o),
+    prompt: (o) => dialogs.prompt(o),
+    openSettings: (t) => requestOpenSettings(t),
+    runCommand: (cid) => runCommand(cid), // Galley: V2 (WPX1) the page's and the features' commands
+    refreshFiles: async () => { await loadFiles(); },
+    refreshProject: async () => { await loadProject(); },
+  };
+  /** Galley: V2 read-only rules: the first reason any feature gives for the open file. */
+  const readOnlyBy = readOnlyReason(modules, activeFile, page);
   if (!project) return loadError ? <ProjectUnavailable projectId={id} error={loadError} onRetry={() => setLoadTry((n) => n + 1)} /> : <div className="editor-shell" />;
 
   /** Signed in again over the editor: everything that was refused asks again. */
@@ -1954,11 +2218,19 @@ export default function Editor() {
   // "Can view": the files are as read-only as a showcase's, comments are not.
   const viewOnly = authEnabled && project.canEdit === false && !project.readOnly;
   const locked = !!project.readOnly || viewOnly;
+  // Galley: V2 the features' sidebar panels (sidebar.panels items with a panel), and the main row's tabs by order.
+  const featurePanels = slotItems(modules, 'sidebar.panels', { page, app: appCtx }).filter((it) => it.panel);
+  const pinnedTabs = [
+    ...pinnedPlugins.filter((pin) => pluginPanels.some((p) => p.id === pin.id))
+      .map((pin) => ({ id: pin.id, title: pluginPanels.find((p) => p.id === pin.id)!.title, icon: pin.icon, order: pin.order })),
+    ...featurePanels.filter((it) => it.panel!.pinned).map((it) => ({ id: it.id, title: it.panel!.title, icon: it.panel!.icon, order: it.order })),
+  ].map((t, i) => ({ ...t, i })).sort((a, b) => a.order - b.order || a.i - b.i);
 
   // The documents a typeset can start from: the ones with \documentclass, and the main one.
 
   return (<>
-    <div className="editor-shell" data-testid="editor-shell" inert={sessionEnded || undefined}>
+    {/* Galley: V2 the settings page covers the editor without unmounting it */}
+    <div className="editor-shell" data-testid="editor-shell" inert={sessionEnded || settingsRoute || undefined}>
       <PluginHost ctx={pluginCtx} onPanels={setPluginPanels} onErrorsActions={setPluginActions} onCommands={setPluginCommands} files={files} />
       <header className="toolbar" aria-label="Project toolbar">
         <button className="btn btn--ghost" onClick={() => leaving(() => navigate(homeReturn(safeSession.get(HOME_RETURN_KEY))))} title="Back to projects" aria-label="Back to projects" data-testid="back-to-projects"><IconChevronLeft /></button>
@@ -1994,7 +2266,7 @@ export default function Editor() {
             onChanged={() => { loadProject(); loadFiles(); }}
             onPulled={() => { loadFiles(); loadProject(); }}
             onAutopushChange={() => loadProject()}
-            onOpenSettings={() => setSettingsOpen(true)}
+            onOpenSettings={() => requestOpenSettings({ section: 'project' })} // Galley: V2 settings page
             onReopened={() => setReopenAccess(false)}
           />
         ) : (
@@ -2016,8 +2288,10 @@ export default function Editor() {
         )}
         <div className="toolbar__spacer" />
         <PaletteTrigger label="Search files and commands" onOpen={() => setPaletteOpen(true)} />
+        <Slot name="toolbar.main" page={page} />{/* Galley: V2 slot */}
         <button className="btn toolbar__wide" onClick={() => setShareOpen(true)} data-testid="share-project" title={canManageSharing ? 'Invite collaborators, share by link, download the PDF or the source' : 'Download the PDF or the source'}>Share</button>
-        <button className="btn toolbar__wide" onClick={() => setSettingsOpen(true)} data-testid="project-settings-open" title="Project settings: compiler, main document, TeX Live">Settings</button>
+        {/* Galley: V2 settings page, on its "This project" section */}
+        <button className="btn toolbar__wide" onClick={() => requestOpenSettings({ section: 'project' })} data-testid="project-settings-open" title="Project settings: compiler, main document, TeX Live">Settings</button>
         {!project.readOnly && (
           <button className="btn toolbar__wide" onClick={startComment} data-testid="add-comment" title={`Comment on the selected text (${keys.comment})`}>
             Comment <kbd className="kbd toolbar__kbd">{keys.comment}</kbd>
@@ -2091,10 +2365,16 @@ export default function Editor() {
             { kind: 'separator' },
             ...(!project.readOnly ? [{ id: 'comment', label: 'Comment on the selection', onSelect: startComment, testId: 'more-comment' } as MenuEntry] : []),
             { id: 'share', label: 'Share…', onSelect: () => setShareOpen(true), testId: 'more-share' },
-            { id: 'settings', label: 'Settings…', onSelect: () => setSettingsOpen(true), testId: 'more-settings' },
+            { id: 'settings', label: 'Settings…', onSelect: () => requestOpenSettings({ section: 'project' }), testId: 'more-settings' }, // Galley: V2 settings page
             ...(users.length > 1 ? [{ kind: 'hint', label: `Here now: ${users.map((u) => u.name).join(', ')}`, testId: 'more-presence' } as MenuEntry] : []),
           ]}
-        />
+        >
+          {/* Galley: V2 slot phone.moreSheet, after the sheet's rows; a click on a row closes the sheet like its own rows do.
+              display: contents, so the wrapper adds no box (and no flex gap) when the slot is empty. */}
+          <div className="action-sheet__slot" style={{ display: 'contents' }} onClick={(e) => { if ((e.target as Element).closest('button, a')) setMoreOpen(null); }}>
+            <Slot name="phone.moreSheet" page={page} />
+          </div>
+        </ActionSheet>
       )}
 
       {/* Only the owner can retry (the route is owner-only); once a link
@@ -2161,14 +2441,12 @@ export default function Editor() {
             >
               <IconHistory />
             </button>
-            {pluginPanels.filter((p) => PINNED_PANELS.includes(p.id)).map((p) => {
-              const Icon = PINNED_ICONS[p.id];
-              return (
-                <button key={p.id} className={`sidebar__tab sidebar__tab--icon ${tab === p.id ? 'sidebar__tab--active' : ''}`} onClick={() => setTab(p.id)} role="tab" aria-selected={tab === p.id} aria-label={p.title} title={p.title} data-testid={`tab-${p.id}`}>
-                  {Icon ? <Icon /> : p.title.slice(0, 1)}
-                </button>
-              );
-            })}
+            {/* Galley: V2 pinned tabs: plugin panels (the core ones, then features'), and features' own pinned panels, by order */}
+            {pinnedTabs.map(({ id: pid, title, icon: Icon }) => (
+              <button key={pid} className={`sidebar__tab sidebar__tab--icon ${tab === pid ? 'sidebar__tab--active' : ''}`} onClick={() => setTab(pid)} role="tab" aria-selected={tab === pid} aria-label={title} title={title} data-testid={`tab-${pid}`}>
+                <Icon />
+              </button>
+            ))}
             {(() => {
               const open = comments.filter((c) => !c.resolved).length;
               const label = open ? `Review, ${open} open thread${open === 1 ? '' : 's'}` : 'Review';
@@ -2180,7 +2458,8 @@ export default function Editor() {
               );
             })()}
             {(() => {
-              const more = pluginPanels.filter((p) => !PINNED_PANELS.includes(p.id));
+              // Galley: V2 the features' unpinned panels are listed here too
+              const more = [...pluginPanels.filter((p) => !pinnedPlugins.some((x) => x.id === p.id)), ...featurePanels.filter((it) => !it.panel?.pinned).map((it) => ({ id: it.id, title: it.panel!.title }))];
               const shown = more.find((p) => p.id === tab);
               if (!more.length) return null;
               return (
@@ -2202,6 +2481,10 @@ export default function Editor() {
                 </div>
               );
             })()}
+            {/* Galley: V2 perch for the files side: the space the tabs leave. The negative margin
+                cancels the row's 2px gap (.sidebar__tabs) this element adds, so a full row (a tablet's
+                180px sidebar) keeps the collapse button exactly where it was, clear of the resizer. */}
+            <span className="toolbar__spacer" data-perch="files" aria-hidden="true" style={{ marginLeft: -2 }} />
             <button className="sidebar__collapse" onClick={() => setSidebar(true)} title="Hide the sidebar" aria-label="Hide the sidebar" data-testid="sidebar-collapse"><IconSidebar /></button>
           </div>
           <div className="sidebar__body">
@@ -2263,7 +2546,13 @@ export default function Editor() {
                     setTimeout(() => { if (localRemoval.current === path) localRemoval.current = null; }, 0);
                   }
                 }}
-                onRename={async (from, to) => {
+                onRename={async (from, to, via = 'tree') => {
+                  // Galley: V2 interceptors: a feature that takes the rename over does all of it
+                  // (the moves signal then follows the open file).
+                  // Galley: V2 interceptors: 'cancelled' leaves the tree as it was; 'handled' was reported by the feature
+                  const by = await interceptFileRename(modules, { from, to, via }, page);
+                  if (by === 'cancelled') return false;
+                  if (by === 'handled') return 'reported';
                   localRemoval.current = from;
                   try {
                     await api.renameFile(id, branch, from, to);
@@ -2295,6 +2584,7 @@ export default function Editor() {
                   }}
                 />
               )}
+              <Slot name="files.footer" page={page} />{/* Galley: V2 slot */}
             </div>
             <div className="sidebar__panel" style={{ display: tab === 'history' ? 'block' : 'none' }}><HistoryPanel projectId={id} branch={branch} version={historyVersion} live={agentPresent} manual={!!project?.manualCommits} focusRequest={commitFocusRequest} onFocusHandled={() => setCommitFocusRequest(0)} readOnly={locked} onReverted={() => onDocChanged(true)} hidden={tab !== 'history'} /></div>
             <div className="sidebar__panel" style={{ display: tab === 'review' ? 'block' : 'none' }}>
@@ -2334,6 +2624,12 @@ export default function Editor() {
             {pluginPanels.map((p) => (
               <div key={p.id} className="sidebar__panel" style={{ display: tab === p.id ? 'block' : 'none' }} ref={(el) => { if (el && !el.hasChildNodes()) p.mount(el); }} />
             ))}
+            {/* Galley: V2 features' panels (sidebar.panels), mounted when first shown and kept like the plugins' */}
+            {featurePanels.map((it) => (tab === it.id || mountedPanels.has(it.id)) && (
+              <div key={it.id} className="sidebar__panel" style={{ display: tab === it.id ? 'block' : 'none' }} data-testid={`panel-${it.id}`}>
+                <SlotItemView item={it} page={page} />
+              </div>
+            ))}
           </div>
         </aside>
         {!sidebarHidden && (
@@ -2358,10 +2654,12 @@ export default function Editor() {
             <>
               <div className="pane__header">
                 <span className="statusbar__file" data-testid="active-file">{activeFile}</span>
+                <Slot name="editor.status" page={page} />{/* Galley: V2 slot */}
                 {paneMode === 'visual' && <FormatToolbar target={codeRef} />}
-                <span className="toolbar__spacer" />
+                <span className="toolbar__spacer" data-perch="editor" />{/* Galley: V2 perch */}
                 {sync?.key === paneKey && <SyncStatus state={sync.state} readOnly={locked} />}
                 {shown === 'editor' && typesetShort}
+                <Slot name="editor.tools" page={page} />{/* Galley: V2 slot */}
                 <button
                   className="btn btn--ghost btn--small pane__find"
                   onClick={() => codeRef.current?.openFind()}
@@ -2379,6 +2677,13 @@ export default function Editor() {
                   <button className="btn btn--small" onClick={() => pluginCtx.showPanel('plugin:zotero')} data-testid="zotero-bib-banner-open">Open Zotero</button>
                 </div>
               )}
+              {/* Galley: V2 read-only rules (the first reason is the banner) and the editor.banners slot */}
+              {readOnlyBy && !zoteroBib && (
+                <div className="remote-pending" role="status" data-testid="read-only-banner">
+                  <span className="remote-pending__text">{readOnlyBy}</span>
+                </div>
+              )}
+              <Slot name="editor.banners" page={page} />
               <CodePane
                 key={`${id}::${branch}::${activeFile}`}
                 ref={codeRef}
@@ -2388,7 +2693,6 @@ export default function Editor() {
                 rootFile={project?.rootFile}
                 onUsers={setUsers}
                 onDocChanged={onDocChanged}
-                onStats={setStats}
                 spellcheck={spellcheck}
                 spellLang={spellLang}
                 onOutline={(o) => setOutline({ key: paneKey, ...o })}
@@ -2400,14 +2704,16 @@ export default function Editor() {
                 onCommentCaret={markComment}
                 mode={paneMode}
                 identity={identity}
-                readOnly={locked || zoteroBib}
+                readOnly={locked || zoteroBib || !!readOnlyBy}
                 onSync={(state) => setSync({ key: paneKey, state })}
                 agentSeenAt={unseen.seenAt}
                 changeMarks={changeMarks}
                 baselineVersion={historyVersion}
                 manualCommits={!!project?.manualCommits}
                 onFormat={formatDocument}
-              />
+                // Galley: V2 the seam with the editor host (CodePaneFeatureHost)
+                featureHost={codeFeatureHost}
+              />{/* Galley: V2 readOnly also follows the read-only rules */}
             </>
           ) : filesLoaded && !hasFiles ? (
             <div className="pdf-empty" data-testid="empty-project">
@@ -2516,6 +2822,7 @@ export default function Editor() {
                     {failed && pluginActions.map((a) => (
                       <button key={a.id} className="btn btn--ghost btn--small" onClick={a.run} title={a.title} data-testid={`errors-action-${a.id}`}>{a.label}</button>
                     ))}
+                    {typesetOutcome}{/* Galley: the outcome beside View log */}
                     <button className="btn btn--ghost btn--small" onClick={() => setShowLog(true)} data-testid="view-log">View log</button>
                   </span>
                 </div>
@@ -2547,6 +2854,17 @@ export default function Editor() {
               </div>
             );
           })()}
+          {/* Galley: after a clean run there is no problems panel; this slim bar holds the outcome and View log. */}
+          {!showErrors && typesetOutcome && (
+            <div className="errors errors--folded errors--clean" data-testid="typeset-bar">
+              <div className="errors__head">
+                <span className="errors__actions">
+                  {typesetOutcome}
+                  <button className="btn btn--ghost btn--small" onClick={() => setShowLog(true)} data-testid="view-log">View log</button>
+                </span>
+              </div>
+            </div>
+          )}
         </main>
 
         {shown === 'both' && (
@@ -2575,21 +2893,12 @@ export default function Editor() {
         >
           <div className="pane__header">
             {phone && shown === 'pdf' && phoneSwitch}
-            <span className="pdf-status" data-testid="pdf-status">
+            <span className="pdf-status" data-testid="pdf-status-live">{/* Galley: the outcome (data-testid pdf-status) moved under the editor */}
               {agentTypesetting && compile.status !== 'compiling' ? (
                 <span data-testid="agent-typesetting"><span className="dot dot--busy" /> Typesetting Claude’s edits…</span>
               ) : (compile.status === 'ok' || compile.status === 'error' || (compile.status === 'idle' && compile.outdated)) && compile.result ? (
-                // The run's outcome opens its log: after a clean run there is no
-                // problems panel to hold the button.
-                <button className="pdf-status__log" onClick={() => setShowLog(true)} title="View the typesetting log" data-testid="pdf-status-log">
-                  {compile.status === 'idle' && <><span className="dot dot--warn" /> Out of date</>}
-                  {compile.status === 'ok' && <><span className="dot dot--ok" /> <span className="pdf-status__verb">Typeset in </span>{((compile.wallMs ?? compile.result.durationMs) / 1000).toFixed(1)}s{compile.result.needsFullRun && (
-                    <span className="pdf-status__draft" data-testid="draft-pending" title="A quick single pass while you type. References and the bibliography settle in a full typeset a few seconds after you stop, or when you press Typeset."> · draft, references next</span>
-                  )}</>}
-                  {compile.status === 'error' && (compile.result.stopped
-                    ? <><span className="dot dot--warn" /> Stopped</>
-                    : <><span className="dot dot--error" /> {errCount > 0 ? `${errCount} error${errCount === 1 ? '' : 's'}` : 'Failed'}</>)}
-                </button>
+                // Galley: the run's outcome moved to the bar under the editor, beside View log (the owner's request: up here it was clipped).
+                null
               ) : (<>
                 {compile.status === 'compiling' && hasPdf && <><span className="dot dot--busy" /> Typesetting…</>}
                 {compile.status === 'error' && <><span className="dot dot--error" /> {errCount > 0 ? `${errCount} error${errCount === 1 ? '' : 's'}` : 'Failed'}</>}
@@ -2598,24 +2907,9 @@ export default function Editor() {
                 <button className="btn btn--ghost btn--small" onClick={stopTypeset} title="Stop this typeset" data-testid="typeset-stop">Stop</button>
               )}
             </span>
-            {activeFile && !previewing && (() => {
-              // document total with the open file's count kept live; a file
-              // outside the include graph falls back to its own count
-              const inDoc = !!(docWords && docWords.files[activeFile] != null);
-              const total = inDoc ? docWords!.total - docWords!.files[activeFile] + stats.words : stats.words;
-              return (
-                <span
-                  className="pdf-status pdf-words"
-                  data-testid="word-count"
-                  title={inDoc ? 'Words in the whole document (root file plus everything it includes)' : 'Words in this file (it is not included from the root file)'}
-                >
-                  {stats.selWords != null
-                    ? `${stats.selWords.toLocaleString()} of ${total.toLocaleString()} words`
-                    : `${total.toLocaleString()} words`}
-                </span>
-              );
-            })()}
-            <span className="toolbar__spacer" />
+            {/* Galley: V2 slot pdf.status: the word count is features/wordcount's (interim) */}
+            <Slot name="pdf.status" page={page} />
+            <span className="toolbar__spacer" data-perch="preview" />{/* Galley: V2 perch */}
             {hasPdf && (
               <button
                 className="btn btn--ghost btn--small jump__source"
@@ -2643,11 +2937,8 @@ export default function Editor() {
               <button className="zoom__label" onClick={() => zoomPdf(0)} title="Reset to fit width (0)" aria-label={`PDF zoom ${Math.round(zoom * 100)}%, click to reset`}>{Math.round(zoom * 100)}%</button>
               <button className="btn btn--ghost btn--small" onClick={() => zoomPdf(1)} title="Zoom in (+)" aria-label="Zoom in">+</button>
             </div>
-            {compile.result?.pdfUrl ? (
-              <a className="btn btn--ghost btn--small pdf-download" href={compile.result.pdfUrl} download={`${(project.name || 'document').replace(/[\\/:*?"<>|]/g, '-')}.pdf`} title="Download the PDF" aria-label="Download the PDF" data-testid="pdf-download"><IconDownload /></a>
-            ) : (
-              <button className="btn btn--ghost btn--small pdf-download" disabled title="Typeset the document first to download its PDF" aria-label="Download the PDF" data-testid="pdf-download"><IconDownload /></button>
-            )}
+            {/* Galley: V2 slot pdf.actions where the download button was (now features/outputs', interim) */}
+            <Slot name="pdf.actions" page={page} />
             <button
               className={`auto-toggle ${auto ? 'auto-toggle--on' : ''}`}
               onClick={toggleAuto}
@@ -2686,11 +2977,14 @@ export default function Editor() {
             onShowErrors={shown === 'pdf' ? () => revealRef.current('editor') : undefined}
             pages={pdfPages}
             onZoom={setZoom}
+            // Galley: V2 the seam with the editor host (PdfPaneFeatureHost)
+            featureHost={pdfFeatureHost}
           />
+          <Slot name="pdf.overlay" page={page} />{/* Galley: V2 slot */}
         </section>
       </div>
 
-      <CommandPalette open={paletteOpen} commands={commands} onClose={() => setPaletteOpen(false)} />
+      <CommandPalette open={paletteOpen} commands={paletteRows} onClose={() => setPaletteOpen(false)} />{/* Galley: V2 with the features' commands */}
 
       {composing && (
         <CommentComposer quote={composing.quote} onSubmit={submitComment} onClose={() => setComposing(null)} />
@@ -2737,35 +3031,6 @@ export default function Editor() {
         </Modal>
       )}
 
-      {settingsOpen && (
-        <ProjectSettings
-          project={project}
-          files={files}
-          autoTypeset={auto}
-          vim={vim}
-          spellcheck={spellcheck}
-          spellLang={spellLang}
-          onToggleSpellcheck={toggleSpellcheck}
-          onSetSpellLang={setSpellLang}
-          importNote={imported && imported.engineReason && imported.engine === project.engine ? `Set on import because of ${imported.engineReason}` : undefined}
-          canConfigure={canSync && !viewOnly}
-          viewOnly={viewOnly}
-          onClose={() => setSettingsOpen(false)}
-          onRename={saveName}
-          onSetRoot={(path: string) => setRootFile(path, { typeset: true })}
-          mainDocs={mainDocs?.key === `${id}::${branch}` ? mainDocs.paths : undefined}
-          onSetEngine={setEngine}
-          onSetStopOnFirstError={setStopOnFirstError}
-          onSetManualCommits={setManualCommits}
-          onToggleAutoTypeset={toggleAuto}
-          onToggleVim={toggleVim}
-          focus={settingsOpen === 'shortcuts' ? 'shortcuts' : undefined}
-          readOnly={!!project.readOnly}
-          yourName={authEnabled ? undefined : localName}
-          onSetYourName={authEnabled ? undefined : (n) => setLocalNameState(setLocalName(n))}
-        />
-      )}
-
       {shareOpen && (
         <ShareModal
           project={project}
@@ -2803,7 +3068,43 @@ export default function Editor() {
           </div>
         </Modal>
       )}
+      <Slot name="editor.overlay" page={page} />{/* Galley: V2 slot */}
     </div>
+    {/* Galley: V2 settings page over the editor; its "This project" section gets
+        exactly what the Project settings dialog got (SettingsPageProps.project). */}
+    {settingsRoute && (
+      <Suspense fallback={null}>
+        <SettingsPage
+          section={subpage.section}
+          setting={settingFromHash(location.hash)}
+          project={{
+            project,
+            files,
+            autoTypeset: auto,
+            vim,
+            spellcheck,
+            spellLang,
+            onToggleSpellcheck: toggleSpellcheck,
+            onSetSpellLang: setSpellLang,
+            importNote: imported && imported.engineReason && imported.engine === project.engine ? `Set on import because of ${imported.engineReason}` : undefined,
+            canConfigure: canSync && !viewOnly,
+            viewOnly,
+            onRename: async (name: string) => { await saveName(name); },
+            onSetRoot: (path: string) => setRootFile(path, { typeset: true }),
+            mainDocs: mainDocs?.key === `${id}::${branch}` ? mainDocs.paths : undefined,
+            onSetEngine: setEngine,
+            onSetStopOnFirstError: setStopOnFirstError,
+            onSetManualCommits: setManualCommits,
+            onToggleAutoTypeset: toggleAuto,
+            onToggleVim: toggleVim,
+            readOnly: !!project.readOnly,
+            yourName: authEnabled ? undefined : localName,
+            onSetYourName: authEnabled ? undefined : (n: string) => setLocalNameState(setLocalName(n)),
+          } satisfies NonNullable<SettingsPageProps['project']>}
+          onClose={() => closeSettings(navigate, `/p/${id}`, location.search)}
+        />
+      </Suspense>
+    )}
     {sessionEnded && (
       <div className="session-ended" role="dialog" aria-modal="true" aria-label="Your session has ended" data-testid="session-ended">
         <ProjectUnavailable

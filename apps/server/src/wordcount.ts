@@ -57,3 +57,6 @@ export function documentFiles(rootFile: string, read: (path: string) => string |
   }
   return out;
 }
+
+// Galley: V2 (WP24) the rule-based engine (parts, kinds, the inline include walk) is wordcount/engine.ts; the two V1 functions above stay for their callers until indexes.ts delegates to wordcount/count.ts.
+export { countDocument, countText, resolveRule, applyRule, DEFAULT_RULE } from './wordcount/engine.js';

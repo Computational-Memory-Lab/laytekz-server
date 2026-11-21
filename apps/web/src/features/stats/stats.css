@@ -1,0 +1,30 @@
+/* Feature 16 (statistics, WP38): the house-style control, the paste offer and the tools button. */
+
+.stats-style { display: flex; flex-direction: column; gap: var(--space-2, 8px); max-width: 520px; }
+.stats-style__head { display: flex; align-items: center; gap: var(--space-3, 12px); }
+.stats-style__name { font-weight: 600; color: var(--text); }
+.stats-style__row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3, 12px); flex-wrap: wrap; }
+.stats-style__label { color: var(--text-2); font-size: var(--text-sm, 13px); }
+.stats-style__select { min-width: 180px; max-width: 100%; }
+
+.stats-offer {
+  position: fixed;
+  left: 50%;
+  bottom: 72px;
+  transform: translateX(-50%);
+  z-index: var(--z-toast, 300);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3, 12px);
+  max-width: calc(100vw - 32px);
+  padding: var(--space-2, 8px) var(--space-3, 12px);
+  background: var(--material-pop, var(--bg-panel-raised));
+  color: var(--text);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-l, 10px);
+  box-shadow: var(--shadow-pop);
+  font-size: var(--text-sm, 13px);
+}
+.stats-offer__text { flex: 1 1 auto; }
+
+.stats-tools-button { display: inline-flex; align-items: center; gap: 4px; font-family: var(--font-serif, serif); font-style: italic; }

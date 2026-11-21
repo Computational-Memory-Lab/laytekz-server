@@ -317,7 +317,9 @@ test.describe('PDF preview', () => {
       expect(res.ok()).toBe(true);
       expect(await res.text()).toContain('\\begin{thebibliography}');
       await expect(page.getByTestId('download-log')).toHaveText('main.log');
-      await expect(page.getByTestId('share-downloads')).toContainText('arXiv also needs main.bbl');
+      // Galley: V2 (WP34) the hint points at the arXiv ZIP, which carries the .bbl
+      await expect(page.getByTestId('download-arxiv')).toBeVisible();
+      await expect(page.getByTestId('share-downloads')).toContainText('“For arXiv” adds main.bbl');
     } finally { await cleanup(request, id); }
   });
 

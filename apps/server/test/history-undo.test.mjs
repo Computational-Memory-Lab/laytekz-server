@@ -71,7 +71,7 @@ try {
   eq(entries[0].message, 'Delete main.tex', 'the deletion is titled with the path');
   eq(entries[0].author, 'Ada', 'under the person who deleted it');
   eq(entries[0].files, ['main.tex'], 'and holds the deletion only');
-  eq(entries[1].message, 'aldine: autosave', 'the typing before it was saved first');
+  eq(entries[1].message, 'laytekz: autosave', 'the typing before it was saved first');
   check(!fs.existsSync(path.join(dir(), 'main.tex')), 'the file is gone');
 
   res = await inject('POST', '/revert', { branch: 'main', hashes: [body.commit], message: 'Undo “Delete main.tex”', author: 'Ada' });

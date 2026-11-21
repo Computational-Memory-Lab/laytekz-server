@@ -23,7 +23,9 @@ interface Props {
   onDelete(path: string): void;
   /** A file or a folder; a drop onto a folder moves it there the same way.
    *  Resolves true once it has moved. */
-  onRename(from: string, to: string): Promise<boolean>;
+  /** Galley: V2 `via` says whether a row was dragged, for the rename interceptors (features/types.ts);
+   *  'reported': renamed by a feature that told the person itself (no "Moved" toast). */
+  onRename(from: string, to: string, via?: 'tree' | 'drag'): Promise<boolean | 'reported'>;
   /** Absent for someone who may not reconfigure the project (a link visitor). */
   onSetRoot?(path: string): void;
   /** Bumped by the parent to open the new-file input from outside the tree
@@ -221,13 +223,14 @@ export default function FileTree({ files, active, rootFile, projectId, branch, o
     });
   };
   /** A folder that moves keeps the folders open in it open at the new place. */
-  const rename = async (from: string, to: string) => {
-    if (!(await onRename(from, to))) return false;
+  const rename = async (from: string, to: string, via: 'tree' | 'drag' = 'tree') => { // Galley: V2 via
+    const done = await onRename(from, to, via); // Galley: V2 true, or 'reported' by a feature
+    if (!done) return false;
     setOpenDirs((s) => {
       if (![...s].some((p) => within(p, from))) return s;
       return new Set([...s].map((p) => (within(p, from) ? to + p.slice(from.length) : p)));
     });
-    return true;
+    return done;
   };
   // The open file's row stays in view, however it was opened. Only a change
   // of file reveals, so a folder closed around the open file stays closed
@@ -632,12 +635,14 @@ export default function FileTree({ files, active, rootFile, projectId, branch, o
       const from = e.dataTransfer.getData(DRAG_TYPE);
       if (from) {
         const to = moveTarget(from, dir);
-        if (to && (await rename(from, to))) {
+        const moved = to ? await rename(from, to, 'drag') : false; // Galley: V2 via
+        if (to && moved) {
           reveal(dir);
           // A slip of the pointer can move a file: the move says so, and can be taken back.
-          toast(`Moved ${to.split('/').pop()} to ${dir ? `${dir}/` : 'the top level'}`, 'ok', {
+          // Galley: V2 a move the rename feature reported has its own toast and Undo.
+          if (moved === true) toast(`Moved ${to.split('/').pop()} to ${dir ? `${dir}/` : 'the top level'}`, 'ok', {
             label: 'Undo', testId: 'undo-move', key: 'tree-move',
-            onClick: () => { void latest.current.rename(to, from).then((ok) => { if (ok) reveal(parentOf(from)); }); },
+            onClick: () => { void latest.current.rename(to, from, 'drag').then((ok) => { if (ok) reveal(parentOf(from)); }); }, // Galley: V2 via
           });
         }
         return;

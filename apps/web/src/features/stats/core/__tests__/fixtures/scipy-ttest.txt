@@ -1,0 +1,1 @@
+TtestResult(statistic=np.float64(-1.8608134674868526), pvalue=np.float64(0.07939414018735677), df=np.float64(17.776365576162064))

@@ -9,6 +9,9 @@ import type { InviteReport, InvitationView, MyInvitation, OwnerInvitation } from
 /** `commitEmail`: author address on the commits Aldine makes for this account; only ever the person's own. */
 export interface AuthUser { id: string; email: string | null; name: string; provider?: string; orcid?: string; emailPending?: true; avatar?: string; commitEmail?: string }
 export interface OAuthProviderInfo { id: string; label: string }
+/** Galley: the pre-approved list on /admin: addresses and "@domain" entries. */
+export interface PreApprovedList { entries: string[]; updatedAt: string | null; updatedBy: string | null }
+
 /** The support contact on /admin: `source` says whether it was set there or comes from ALDINE_SUPPORT (`env`). */
 export interface SupportSetting {
   support: { kind: 'email' | 'url'; value: string } | null;
@@ -191,6 +194,8 @@ export interface CompileResult {
   draft?: boolean;
   /** That draft left references or the bibliography behind the source. */
   needsFullRun?: boolean;
+  /** Galley: V2 (WP21) path → hash of the text typeset, when pdfUrl is this run's output. */
+  sources?: Record<string, string>;
 }
 export interface CompileStatus {
   /** A typeset for this branch is in flight on the server. */
@@ -366,6 +371,12 @@ export function onSignedOut(fn: () => void): () => void {
   return () => { signedOutListeners.delete(fn); };
 }
 
+/** Galley: V2 (WP45) the wording for a Cloudflare 520–530 answer: a typeset that outlasted the proxy's 100 s, or an outage. */
+export function gatewayMessage(url: string, status: number): string {
+  if (status === 524 && /\/compile(\?|$)/.test(url)) return 'The typeset took longer than the 100 seconds the proxy allows. It may still finish; the PDF appears when it does.';
+  return 'The server is not responding.';
+}
+
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
@@ -396,15 +407,57 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
     if ((res.status === 502 || res.status === 503 || res.status === 504) && msg === `HTTP ${res.status}`) {
       msg = 'The server is not responding.';
     }
+    // Galley: V2 (WP45) Cloudflare's own 520–530 pages (524 timeout, 530 tunnel down) carry no JSON either.
+    if (res.status >= 520 && res.status <= 530 && msg === `HTTP ${res.status}`) msg = gatewayMessage(url, res.status);
     // The sign-in routes answer 401 for a wrong password, and a git host's
     // refused token comes back as 401 too: neither is about this session.
     if (res.status === 401 && !url.startsWith('/api/auth/') && code !== TOKEN_REJECTED && reason !== TOKEN_REJECTED) {
       for (const fn of signedOutListeners) fn();
+      noteSession(null); // Galley: V2 session notifier
     }
     const retryAfter = Number(res.headers.get('retry-after'));
     throw new ApiError(msg, res.status, retryAfter > 0 ? retryAfter : undefined, code, body);
   }
   return res.json() as Promise<T>;
+}
+
+/** Galley: the request helper for V2 features (base path, JSON body, ApiError,
+ *  the signed-out listeners), so no feature grows a second fetch wrapper. */
+export function apiRequest<T>(url: string, init?: RequestInit): Promise<T> {
+  return req<T>(url, init);
+}
+
+/* Galley: who is signed in, as the auth routes last answered, for V2 code
+   that binds state to an account (the settings sync, the capabilities
+   client). Sign-in by password does not reload the page, so they cannot
+   read it once at start. */
+let sessionUserId: string | null | undefined;
+const sessionListeners = new Set<(userId: string | null) => void>();
+
+/** The signed-in account's id; null when nobody is (or accounts are off);
+ *  undefined until an auth route has answered in this tab. */
+export function sessionUser(): string | null | undefined {
+  return sessionUserId;
+}
+
+/** `fn` runs when the signed-in account changes: a sign-in, a sign-out, the
+ *  first answer of /api/auth/me, or a request refused as signed out. */
+export function onSessionUser(fn: (userId: string | null) => void): () => void {
+  sessionListeners.add(fn);
+  return () => { sessionListeners.delete(fn); };
+}
+
+function noteSession(userId: string | null): void {
+  if (userId === sessionUserId) return;
+  sessionUserId = userId;
+  for (const fn of [...sessionListeners]) {
+    try { fn(userId); } catch (err) { console.warn('Laytekz: a session listener failed', err); }
+  }
+}
+
+function noteSessionOf<T extends { user?: AuthUser | null }>(r: T): T {
+  noteSession(r.user?.id ?? null);
+  return r;
 }
 
 export type TemplateCategory = 'Journals' | 'Conferences' | 'Theses' | 'Slides' | 'General';
@@ -626,7 +679,8 @@ export const api = {
   bib: (id: string, branch: string) => req<BibEntry[]>(`/api/projects/${id}/bib?branch=${encodeURIComponent(branch)}`),
   wordcount: (id: string, branch: string) =>
     req<{ rootFile: string; total: number; files: Record<string, number> }>(`/api/projects/${id}/wordcount?branch=${encodeURIComponent(branch)}`),
-  labels: (id: string, branch: string) => req<Array<{ label: string; file: string }>>(`/api/projects/${id}/labels?branch=${encodeURIComponent(branch)}`),
+  // Galley: V2 (WP19) detail=1: kind, title and line for the completion detail (WP15)
+  labels: (id: string, branch: string) => req<Array<{ label: string; file: string; kind?: string; title?: string; envTitle?: string }>>(`/api/projects/${id}/labels?branch=${encodeURIComponent(branch)}&detail=1`),
 
   branches: (id: string) => req<BranchInfo[]>(`/api/projects/${id}/branches`),
   /** `checkpoint`: the message for the edits still waiting on `from` (manual commits). */
@@ -771,7 +825,8 @@ export const api = {
   deleteComment: (id: string, cid: string) =>
     req<{ ok: boolean }>(`/api/projects/${id}/comments/${cid}`, { method: 'DELETE' }),
 
-  me: () => req<{ authEnabled: boolean; passwordAuth: boolean; user: AuthUser | null; providers: OAuthProviderInfo[]; admin: boolean; mcpEnabled?: boolean; publicUrl?: string | null; sendsEmail?: boolean; signup?: 'open' | 'approval' }>('/api/auth/me'),
+  // Galley: .then(noteSessionOf), the V2 session notifier (here, login, register, logout)
+  me: () => req<{ authEnabled: boolean; passwordAuth: boolean; user: AuthUser | null; providers: OAuthProviderInfo[]; admin: boolean; mcpEnabled?: boolean; publicUrl?: string | null; sendsEmail?: boolean; signup?: 'open' | 'approval' }>('/api/auth/me').then(noteSessionOf),
   /** Whether the account keeps a Zotero key for its next link; the key itself never comes back. */
   zoteroKey: () => req<{ saved: boolean; userID?: number; username?: string | null }>('/api/zotero/key'),
   forgetZoteroKey: () => req<{ ok: boolean }>('/api/zotero/key', { method: 'DELETE' }),
@@ -786,6 +841,9 @@ export const api = {
   adminUsers: () => req<AdminUserRow[]>('/api/admin/users'),
   adminSupport: () => req<SupportSetting>('/api/admin/instance'),
   setAdminSupport: (support: string) => req<SupportSetting>('/api/admin/instance', { method: 'PUT', body: JSON.stringify({ support }) }),
+  // Galley: addresses and "@domain" entries that skip the wait for approval.
+  adminPreApproved: () => req<PreApprovedList>('/api/admin/preapproved'),
+  setAdminPreApproved: (entries: string) => req<PreApprovedList>('/api/admin/preapproved', { method: 'PUT', body: JSON.stringify({ entries }) }),
   // Every account action sends a JSON body: the server refuses any other.
   adminDisable: (id: string, revokeAgentAccess: boolean) =>
     req<AdminUserRow>(`/api/admin/users/${encodeURIComponent(id)}/disable`, { method: 'POST', body: JSON.stringify({ revokeAgentAccess }) }),
@@ -804,13 +862,15 @@ export const api = {
    *  account waiting for approval confirms its address with it here
    *  (`emailConfirmed` when the server used it). */
   login: (email: string, password: string, confirmToken?: string) =>
-    req<{ user: AuthUser; emailConfirmed?: boolean }>('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password, ...(confirmToken ? { confirmToken } : {}) }) }),
+    req<{ user: AuthUser; emailConfirmed?: boolean }>('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password, ...(confirmToken ? { confirmToken } : {}) }) }).then(noteSessionOf), // Galley: V2 session notifier
   /** `awaitingApproval`: no session; `message` says what happens next. */
   /** `invite`: signing up from that invitation's page; the confirmation link leads back to it. */
   register: (email: string, password: string, name?: string, invite?: string) =>
-    req<{ user: AuthUser; awaitingApproval?: boolean; message?: string }>('/api/auth/register', { method: 'POST', body: JSON.stringify({ email, password, name, ...(invite ? { invite } : {}) }) }),
+    req<{ user: AuthUser; awaitingApproval?: boolean; message?: string }>('/api/auth/register', { method: 'POST', body: JSON.stringify({ email, password, name, ...(invite ? { invite } : {}) }) })
+      // Galley: V2 session notifier; an account waiting for approval has no session
+      .then((r) => (r.awaitingApproval ? r : noteSessionOf(r))),
   /** `redirect`: the identity provider's sign-out page, after a single sign-on session when OIDC_LOGOUT=idp. */
-  logout: () => req<{ ok: boolean; redirect?: string }>('/api/auth/logout', { method: 'POST' }),
+  logout: () => req<{ ok: boolean; redirect?: string }>('/api/auth/logout', { method: 'POST' }).then((r) => { noteSession(null); return r; }), // Galley: V2 session notifier
   signInMethods: () => req<SignInMethods>('/api/auth/sign-in-methods'),
   /** The provider's sign-in page to go to; a 403 with code `reauth-required` asks for the password. */
   connectSignIn: (provider: string, password?: string) =>

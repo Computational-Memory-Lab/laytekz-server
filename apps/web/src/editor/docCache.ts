@@ -18,6 +18,20 @@ export interface CollabDoc {
   destroy(): void;
 }
 
+// Galley: V2 (WP32) the highlighter's side map joins the editor's own undo history.
+/** The side map of a file's doc that holds its highlights; a wire name shared
+ *  with the server (srv/features/highlighter). */
+export const HIGHLIGHTS_KEY = 'highlights';
+/** The origin of a person's own highlight changes: tracked by the undo
+ *  manager, so Mod+Z takes back a highlight like an edit. Remote changes and
+ *  repairs use other origins and never enter anyone's undo history. */
+export const HL_ORIGIN = 'laytekz-highlight';
+
+export function trackHighlights(ydoc: Y.Doc, undoManager: Y.UndoManager): void {
+  undoManager.addToScope(ydoc.getMap(HIGHLIGHTS_KEY));
+  undoManager.addTrackedOrigin(HL_ORIGIN);
+}
+
 export function connectDoc(name: string): CollabDoc {
   const ydoc = new Y.Doc();
   // The socket is created here so it closes with the doc: a provider built
@@ -37,6 +51,7 @@ export function connectDoc(name: string): CollabDoc {
   });
   const ytext = ydoc.getText('content');
   const undoManager = new Y.UndoManager(ytext);
+  trackHighlights(ydoc, undoManager); // Galley: V2 (WP32)
   return {
     name, ydoc, ytext, provider, undoManager,
     destroy() {

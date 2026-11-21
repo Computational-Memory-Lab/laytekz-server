@@ -30,6 +30,14 @@ describe('spellcheck leaves LaTeX alone', () => {
     expect(skipped('% a comment with wrods')).toEqual([]);
   });
 
+  // Galley: V2 (WP20) bare addresses and identifiers are no words.
+  it('skips bare web addresses, mail addresses and DOIs', () => {
+    expect(skipped('See https://example.org/a_b and www.x.org/p today.')).toEqual(['https://example.org/a_b', 'www.x.org/p']);
+    expect(skipped('Mail mailto:me@example.org or doi:10.1037/abc now')).toEqual(['mailto:me@example.org', 'doi:10.1037/abc']);
+    expect(skipped('% see https://x.org/y')).toEqual(['https://x.org/y']);
+    expect(skipped('\\nolinkurl{a.b/c} \\doi{10.1/x}')).toEqual(['\\nolinkurl{a.b/c}', '\\doi{10.1/x}']);
+  });
+
   it('checks prose files only', () => {
     expect(spellcheckable('main.tex')).toBe(true);
     expect(spellcheckable('README.md')).toBe(true);

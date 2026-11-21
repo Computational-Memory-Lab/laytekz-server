@@ -1,7 +1,7 @@
 /**
  * Debounced auto-commit attribution (UX.md audit ledger): agent-scheduled
  * work commits under author Claude scoped to the paths it touched, anonymous
- * (human) work commits as 'aldine: autosave' — one debounce window holding
+ * (human) work commits as 'laytekz: autosave' — one debounce window holding
  * both must yield TWO commits, never one wrongly-attributed commit. Both
  * scheduling orders are pinned because the debounce is last-writer-wins on
  * its own args. Also pinned: an explicit whole-tree commit inside the window
@@ -89,7 +89,7 @@ check(claude1 !== undefined && claude1.message === 'Edit agent.tex', 'agent work
 const claudeStat1 = (await gitops.commitDiff(p1.id, claude1.hash)).stat;
 check(claudeStat1.includes('agent.tex'), 'the Claude commit contains the agent-touched file');
 check(!claudeStat1.includes('human.tex'), "the human's file stays OUT of the Claude commit");
-const autosave1 = log.find((c) => c.message === 'aldine: autosave');
+const autosave1 = log.find((c) => c.message === 'laytekz: autosave');
 check(autosave1 !== undefined && autosave1.author !== 'Claude', 'human work commits as an anonymous autosave');
 check((await gitops.commitDiff(p1.id, autosave1.hash)).stat.includes('human.tex'), "the autosave sweep picks up the human's file");
 
@@ -109,7 +109,7 @@ const claude2 = log.find((c) => c.author === 'Claude');
 check(claude2 !== undefined && claude2.message === 'Update agent.tex', "a later human scheduling does not bury the agent's attribution");
 const claudeStat2 = (await gitops.commitDiff(p2.id, claude2.hash)).stat;
 check(claudeStat2.includes('agent.tex') && !claudeStat2.includes('human.tex'), 'the Claude commit covers exactly the agent-touched paths');
-const autosave2 = log.find((c) => c.message === 'aldine: autosave');
+const autosave2 = log.find((c) => c.message === 'laytekz: autosave');
 check(autosave2 !== undefined && autosave2.author !== 'Claude', "the human's later keystrokes land as an anonymous autosave");
 
 // ---- agent-only window: the sweep finds a clean tree and commits nothing ----
@@ -132,8 +132,8 @@ const explicit = await gitops.commitAll(p4.id, 'main', 'wip', 'Alice');
 check(explicit.committed === true, 'the explicit commit lands the pending agent edit');
 store.writeFile(p4.id, 'main', 'main.tex', 'agent edit\nhuman typing after the commit\n');
 scheduleCommit(p4.id, 'main');
-log = await untilLog(p4.id, 'main', (l) => l[0]?.message === 'aldine: autosave');
-check(log[0].message === 'aldine: autosave' && log[0].author !== 'Claude', "the human's post-commit typing commits as an anonymous autosave");
+log = await untilLog(p4.id, 'main', (l) => l[0]?.message === 'laytekz: autosave');
+check(log[0].message === 'laytekz: autosave' && log[0].author !== 'Claude', "the human's post-commit typing commits as an anonymous autosave");
 check(!log.some((c) => c.author === 'Claude'), 'no Claude commit survives an explicit whole-tree commit');
 
 // ---- same-file checkpoint: a human's uncommitted edits to the file the
@@ -148,7 +148,7 @@ const claude5 = log.find((c) => c.author === 'Claude');
 check(claude5 !== undefined, 'the agent edit commits under Claude');
 const patch5 = (await gitops.commitDiff(p5.id, claude5.hash)).patch;
 check(patch5.includes('+agent sentence') && !patch5.includes('+human paragraph'), "the Claude commit's diff is exactly the agent's delta");
-const checkpoint5 = log.find((c) => c.message === 'aldine: autosave');
+const checkpoint5 = log.find((c) => c.message === 'laytekz: autosave');
 check(checkpoint5 !== undefined && checkpoint5.author !== 'Claude', "the human's pending paragraphs were checkpointed as an anonymous autosave");
 check((await gitops.commitDiff(p5.id, checkpoint5.hash)).patch.includes('+human paragraph two'), 'the checkpoint holds the human paragraphs');
 
@@ -166,7 +166,7 @@ const claudes5b = log.filter((c) => c.author === 'Claude');
 check(claudes5b.length === 1, `exactly one Claude commit after a fire in flight (got ${claudes5b.length})`);
 const patch5b = claudes5b[0] ? (await gitops.commitDiff(p5b.id, claudes5b[0].hash)).patch : '';
 check(patch5b.includes('+agent sentence') && !patch5b.includes('+human paragraph'), "the in-flight fire did not sweep the agent's delta: the Claude commit is exactly the delta");
-const autosaves5b = log.filter((c) => c.message === 'aldine: autosave');
+const autosaves5b = log.filter((c) => c.message === 'laytekz: autosave');
 check(autosaves5b.length === 1 && autosaves5b[0].author !== 'Claude', `exactly one anonymous autosave (got ${autosaves5b.length})`);
 check(autosaves5b[0] && (await gitops.commitDiff(p5b.id, autosaves5b[0].hash)).patch.includes('+human paragraph two'), 'the in-flight fire committed the human paragraphs');
 check(log.indexOf(claudes5b[0]) < log.indexOf(autosaves5b[0]), 'the Claude commit is newer than the autosave');
@@ -184,7 +184,7 @@ log = await gitops.log(p5c.id, 'main');
 check(log[0].author === 'Claude' && log[0].message === 'Edit main.tex', 'the queued fire commits the agent delta under Claude, newest');
 const patch5c = (await gitops.commitDiff(p5c.id, log[0].hash)).patch;
 check(patch5c.includes('+agent sentence') && !patch5c.includes('+human paragraph'), "the queued fire's Claude commit is exactly the agent's delta");
-check(log[1].message === 'aldine: autosave' && log[1].author !== 'Claude', 'the checkpoint before it is the anonymous autosave');
+check(log[1].message === 'laytekz: autosave' && log[1].author !== 'Claude', 'the checkpoint before it is the anonymous autosave');
 check((await gitops.commitDiff(p5c.id, log[1].hash)).patch.includes('+human paragraph two'), 'and it holds the human paragraphs');
 const len5c = log.length;
 await sleep(600);
@@ -216,7 +216,7 @@ await sleep(1200);
 log = await gitops.log(p7.id, 'main');
 const claude7 = log.find((c) => c.author === 'Claude');
 check(claude7 !== undefined && (await gitops.commitDiff(p7.id, claude7.hash)).stat.includes('other.tex'), 'the surviving agent path still commits under Claude');
-check(!log.some((c) => c.message === 'aldine: autosave'), 'nothing is left for the anonymous sweep');
+check(!log.some((c) => c.message === 'laytekz: autosave'), 'nothing is left for the anonymous sweep');
 
 // ---- intents are per path, not per window: an edit_file to main.tex and a
 // later write_file to notes.tex must land as two commits, each titled by its
@@ -271,8 +271,8 @@ check(shutdownFlushSet().some((d) => d.projectId === p11.id), 'the attribution i
 store.writeFile(p11.id, 'main', 'human.tex', 'human line\n');
 await gitops.autoCommit(p11.id, 'main');
 log = await gitops.log(p11.id, 'main');
-check(log[0].message === 'aldine: autosave' && (await gitops.commitDiff(p11.id, log[0].hash)).stat.includes('human.tex'), `the next fire sweeps the person's file (got ${JSON.stringify(log.map((c) => `${c.author}: ${c.message}`))})`);
-check(log[1].author === 'Claude' && log[1].message === 'aldine: agent edit' && (await gitops.commitDiff(p11.id, log[1].hash)).stat.includes('main.tex'), 'and the agent delta landed under Claude with the retry title');
+check(log[0].message === 'laytekz: autosave' && (await gitops.commitDiff(p11.id, log[0].hash)).stat.includes('human.tex'), `the next fire sweeps the person's file (got ${JSON.stringify(log.map((c) => `${c.author}: ${c.message}`))})`);
+check(log[1].author === 'Claude' && log[1].message === 'laytekz: agent edit' && (await gitops.commitDiff(p11.id, log[1].hash)).stat.includes('main.tex'), 'and the agent delta landed under Claude with the retry title');
 
 // ---- a Zotero sync inside the agent window commits the synced .bib and
 // nothing else: Claude's pending delta stays for the fire, which lands it
@@ -286,7 +286,7 @@ check(synced.synced === true && synced.itemCount === 1, `the sync lands the mock
 await gitops.autoCommit(p12.id, 'main');
 log = await gitops.log(p12.id, 'main');
 const titles12 = log.map((c) => `${c.author}: ${c.message}`);
-const syncCommit = log.find((c) => c.message === 'aldine: sync Zotero library into references.bib');
+const syncCommit = log.find((c) => c.message === 'laytekz: sync Zotero library into references.bib');
 check(syncCommit && syncCommit.author !== 'Claude', `the sync commit is not Claude's (got ${JSON.stringify(titles12)})`);
 const syncStat = (await gitops.commitDiff(p12.id, syncCommit.hash)).stat;
 check(syncStat.includes('references.bib') && !syncStat.includes('main.tex'), 'the sync commit holds only the .bib');
@@ -306,7 +306,7 @@ check(boom instanceof Error, 'a subject git cannot take fails the attributed che
 check(shutdownFlushSet().some((d) => d.projectId === p13.id), 'the attribution is put back, not lost');
 await gitops.autoCommit(p13.id, 'main');
 log = await gitops.log(p13.id, 'main');
-check(log[0].author === 'Claude' && log[0].message === 'aldine: agent edit', `the next fire lands the agent delta under the retry title (got ${JSON.stringify(log.map((c) => `${c.author}: ${c.message}`))})`);
+check(log[0].author === 'Claude' && log[0].message === 'laytekz: agent edit', `the next fire lands the agent delta under the retry title (got ${JSON.stringify(log.map((c) => `${c.author}: ${c.message}`))})`);
 
 // ---- the write tools' own commit: built from the snapshots the tool held,
 // so what reaches the working tree while git runs (a store of a person's
@@ -334,13 +334,13 @@ check(log.length === base14 + 2 && log[0].author === 'Claude' && log[0].message 
 check(log[0].hash === snap.hash, 'the returned hash is the new head');
 const patch14 = (await gitops.commitDiff(p14.id, log[0].hash)).patch;
 check(patch14.includes('+agent line') && patch14.includes('+a new section') && !patch14.includes('+human line') && !patch14.includes('typed during the commit'), "the Claude commit is exactly the agent's delta — the late typing and the mid-commit drift are not in it");
-check(log[1].message === 'aldine: autosave' && log[1].author !== 'Claude' && (await gitops.commitDiff(p14.id, log[1].hash)).patch.includes('+human line typed late'), 'the late typing is the anonymous checkpoint just before it');
+check(log[1].message === 'laytekz: autosave' && log[1].author !== 'Claude' && (await gitops.commitDiff(p14.id, log[1].hash)).patch.includes('+human line typed late'), 'the late typing is the anonymous checkpoint just before it');
 check(store.readFile(p14.id, 'main', 'main.tex').toString('utf8') === after14 + 'typed during the commit\n', 'the working tree is left alone');
 const status14 = (await store.git(store.branchDir(p14.id, 'main')).status()).files.map((f) => `${f.index}${f.working_dir} ${f.path}`);
 check(JSON.stringify(status14) === '[" M main.tex"]', `after the commit the index follows HEAD: the drift is an unstaged change and nothing else is dirty (got ${JSON.stringify(status14)})`);
 await gitops.autoCommit(p14.id, 'main');
 log = await gitops.log(p14.id, 'main');
-check(log[0].message === 'aldine: autosave' && (await gitops.commitDiff(p14.id, log[0].hash)).patch.includes('+typed during the commit'), 'the next sweep commits the drift anonymously');
+check(log[0].message === 'laytekz: autosave' && (await gitops.commitDiff(p14.id, log[0].hash)).patch.includes('+typed during the commit'), 'the next sweep commits the drift anonymously');
 // unchanged content makes no commit; a snapshot matching HEAD is not a change
 const len14 = log.length;
 const noop = await gitops.withRepoLock(p14.id, () => gitops.commitAgentWriteHeld(p14.id, 'main', [{ path: 'sections/new.tex', before: 'a new section\n', after: 'a new section\n' }], 'Nothing'));

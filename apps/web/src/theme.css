@@ -113,11 +113,34 @@
   --ease: cubic-bezier(0.25, 0.1, 0.25, 1);
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-in: cubic-bezier(0.64, 0, 0.78, 0);
+
+  /* Galley: V2 tokens (WP02). The editor's typography: settings/apply.ts sets
+     these inline on <html> only while a setting differs from this default. */
+  --editor-font: var(--font-mono);
+  --editor-font-size: var(--text-code);
+  --editor-line-height: 1.55;
+  --visual-font-size: 16px;
+  --visual-width: 46em;
+  /* The brief tint over text an automatic edit just changed: translucent, so
+     the text and any mark under it stay readable. */
+  --auto-edit-flash: rgba(46, 98, 233, 0.18);
+  /* Stacking, the values the stylesheets use today: panes and sticky rows,
+     the desk pet, the toolbar, popovers, the settings page, dialogs, menus,
+     toasts. New layers take one of these, not a number of their own. */
+  --z-pane: 1;
+  --z-pet: 16;
+  --z-toolbar: 31;
+  --z-popover: 60;
+  --z-settings: 150;
+  --z-modal: 200;
+  --z-menu: 250;
+  --z-toast: 300;
 }
 
 /* Dark is Aldine's default theme; index.html stamps data-theme before paint. */
 :root[data-theme="dark"] {
   color-scheme: dark;
+  --auto-edit-flash: rgba(91, 140, 255, 0.24); /* Galley: V2 token (WP02) */
 
   --bg-app: #1c1c1e;
   --bg-panel: #232326;
@@ -215,6 +238,11 @@ button, input, select, textarea { font: inherit; color: inherit; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: 0.01ms !important; }
 }
+/* Galley: the "Reduce motion" setting (V2, WP02) asks the same as the system.
+   Each media block in the three entry files is mirrored under
+   [data-motion="reduce"] or [data-contrast="more"] (settings/apply.ts), with
+   :where() so the copy has the original's specificity and place. */
+:where(:root[data-motion="reduce"]) *, :where(:root[data-motion="reduce"]) *::before, :where(:root[data-motion="reduce"]) *::after { transition-duration: 0.01ms !important; }
 
 /* A half-pixel ring is lost on a 1x screen. */
 @media (max-resolution: 1dppx) {
@@ -232,6 +260,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
   :root { --hairline: rgba(0, 0, 0, 0.32); --hairline-strong: rgba(0, 0, 0, 0.5); --text-2: #48484d; --text-3: #55555a; --material-pop: #ffffff; --material-menu: #ffffff; --material-bar-compact: #ffffff; --paper: #ffffff; }
   :root[data-theme="dark"] { --hairline: rgba(255, 255, 255, 0.34); --hairline-strong: rgba(255, 255, 255, 0.52); --text-2: #c2c2c8; --text-3: #b0b0b8; --material-pop: #2c2c30; --material-menu: #2c2c30; --material-bar-compact: #1c1c1e; --paper: #ffffff; }
 }
+/* Galley: the "Increase contrast" setting (V2, WP02), the block above under [data-contrast="more"]. */
+:root:where([data-contrast="more"]), :root[data-theme="dark"]:where([data-contrast="more"]) { --material-blur: none; --material-menu-blur: none; }
+:root:where([data-contrast="more"]) { --hairline: rgba(0, 0, 0, 0.32); --hairline-strong: rgba(0, 0, 0, 0.5); --text-2: #48484d; --text-3: #55555a; --material-pop: #ffffff; --material-menu: #ffffff; --material-bar-compact: #ffffff; --paper: #ffffff; }
+:root[data-theme="dark"]:where([data-contrast="more"]) { --hairline: rgba(255, 255, 255, 0.34); --hairline-strong: rgba(255, 255, 255, 0.52); --text-2: #c2c2c8; --text-3: #b0b0b8; --material-pop: #2c2c30; --material-menu: #2c2c30; --material-bar-compact: #1c1c1e; --paper: #ffffff; }
 
 /* Theme switch: one short cross-fade of the whole page instead of a jump in
    brightness (theme.ts starts the view transition). */

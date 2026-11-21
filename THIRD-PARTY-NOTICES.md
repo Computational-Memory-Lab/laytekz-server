@@ -4,7 +4,7 @@ Aldine itself is AGPL-3.0 (see [LICENSE](LICENSE)). It ships with the
 open-source packages listed here, each under its own license. Regenerate with
 `npm run notices`.
 
-248 packages: MIT (164), Apache-2.0 (60), ISC (9), BlueOak-1.0.0 (8), BSD-3-Clause (3), BSD-2-Clause (2), MIT-0 (1), 0BSD (1).
+249 packages: MIT (165), Apache-2.0 (60), ISC (9), BlueOak-1.0.0 (8), BSD-3-Clause (3), BSD-2-Clause (2), MIT-0 (1), 0BSD (1).
 
 Two notes that metadata alone does not capture. The `@hocuspocus/*` packages
 declare MIT in package.json but ship no license file; the grant is at
@@ -12404,6 +12404,34 @@ MIT License
     LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
     OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
     SOFTWARE
+```
+
+## @wllama/wllama 3.13.0
+
+License: MIT
+
+```
+MIT License
+
+Copyright (c) 2024 Xuan Son NGUYEN
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 ```
 
 ## abstract-logging 2.0.1

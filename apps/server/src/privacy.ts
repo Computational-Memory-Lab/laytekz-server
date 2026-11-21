@@ -21,8 +21,12 @@ export const PRIVACY_HTML = `
 <ul>
 <li>From your Google account, when you sign in: your name, your email address and your profile picture. The server keeps its own copy of the picture.</li>
 <li>Your account: when it was created and when you last used it.</li>
+<li>If you connect them: your Zotero key and your Mendeley sign-in tokens, kept with your account and never shown to anyone. A library you link to a project is copied into a .bib file in it, which everyone who can open the project can read; abstracts, attached files and tags are left out unless you keep them.</li>
 <li>What you make here: your projects and their files, their history (every saved version), comments, and the email addresses of people you share a project with or invite.</li>
 <li>Only if you add them: the access token of a GitHub, GitLab or Gitea account you link to a project, and your Zotero key.</li>
+<li>If you keep them in your account: your settings (appearance, editor and typing preferences, keyboard shortcuts), so every browser you sign in on uses them. Turn off “Keep my settings in my account” to keep them in this browser only. Project settings are stored with the project and seen by everyone who can open it.</li>
+<li>If you turn on the desk pet: its settings are kept in your account like your other settings. The pet image is supplied by whoever runs this server and is shown only to signed-in people who turn it on; nothing about the pet is shared with your collaborators.</li>
+<li>If you start Claude Code or Codex from the desktop app's console: an access token for that one project, named after this server and the project. It is listed under Agent access in your account settings, where you can revoke it. The desktop app keeps it on your computer, encrypted with the system keychain, and gives it only to the agent it starts.</li>
 </ul>
 
 <h2>Where it is stored</h2>
@@ -33,7 +37,9 @@ export const PRIVACY_HTML = `
 <ul>
 <li><strong>Google</strong>, for sign-in. When you sign in, Google tells this site your name, email address and profile picture. What Google itself keeps is covered by Google's privacy policy.</li>
 <li><strong>Cloudflare</strong>, which carries all traffic between your browser and the server. It sees your IP address and the requests your browser makes.</li>
-<li>Only when you use these features: GitHub, GitLab or Gitea when you push or pull a project you linked; Zotero when you sync a library; doi.org, arXiv and OpenAlex when you look up a reference; a publisher's website when you start a project from a venue's official kit. The server contacts them for you.</li>
+<li>Only when you use these features: GitHub, GitLab or Gitea when you push or pull a project you linked; Zotero or Mendeley when you connect, sync or search your library (Mendeley only if the operator turned it on): they receive your key or sign-in tokens and which library to read; doi.org, Crossref, OpenAlex, arXiv, PubMed, DataCite and Open Library (and Semantic Scholar, if the operator turned it on) when you look up a reference: they receive what you typed or pasted, never your name or address; a publisher's website when you start a project from a venue's official kit. The server contacts them for you.</li>
+<li>Only if you turn on “Smarter suggestions” in Settings: the suggestion model is downloaded once from Hugging Face (huggingface.co and its hf.co download servers), without cookies. Suggestions are then made in your browser, and nothing you type is sent anywhere.</li>
+<li>Claude Code and Codex, if you start them from the desktop app, run on your computer under your own Anthropic or OpenAI account and reach your project through this server. What they send to Anthropic or OpenAI is between you and that company; {{product}} sends those companies nothing.</li>
 </ul>
 
 <h2>Cookies</h2>

@@ -59,7 +59,8 @@ function addTo(text: string, arg: Argument, pos: number, key: string): CitationE
  * a new \cite{key} replaces the selection. The cursor ends after the
  * citation either way, ready for the next pick.
  */
-export function citationEdit(text: string, from: number, key: string, to = from): CitationEdit {
+// Galley: V2 (WP19) `command` names the new citation's command (the document's parenthetical one); \cite by default.
+export function citationEdit(text: string, from: number, key: string, to = from, command = 'cite'): CitationEdit {
   const args = argumentsBefore(text, from);
   const inside = [...args].reverse().find((a) => a.open < from && (a.close === null || from <= a.close));
   if (inside) return addTo(text, inside, from, key);
@@ -67,6 +68,6 @@ export function citationEdit(text: string, from: number, key: string, to = from)
     const before = args.find((a) => a.close === from - 1 && a.command !== 'nocite');
     if (before) return addTo(text, before, from, key);
   }
-  const insert = `\\cite{${key}}`;
+  const insert = `\\${command}{${key}}`;
   return { kind: 'insert', from, to, insert, cursor: from + insert.length };
 }

@@ -1,6 +1,7 @@
 import { db } from './db/index.js';
 import type { CompileMark, LastEdit, ProjectActivity } from './db/types.js';
 import { AGENT_COMMIT_AUTHOR, newestBranchTip } from './gitops.js';
+import { currentAgentAuthor } from './gitops.js'; // Galley: V2 (WP42)
 
 /**
  * What the project list shows about each project's work: the last change to
@@ -17,6 +18,13 @@ export interface Editor { id: string | null; name: string | null }
 
 /** Agent writes, named as History names them. */
 export const AGENT_EDITOR: Editor = { id: null, name: AGENT_COMMIT_AUTHOR };
+
+/** Galley: V2 (WP42). An agent's writes under its own name; by default the
+ *  agent the running MCP request speaks for. noteEdit reads AGENT_EDITOR as
+ *  this, so the tools' calls name Codex when Codex wrote. */
+export function agentEditor(agent: string = currentAgentAuthor()): Editor {
+  return { id: null, name: agent };
+}
 
 /** The account behind a request or a collab connection; null without accounts. */
 export function editorOf(user: { id: string; name?: string | null; email?: string | null } | null | undefined): Editor | null {
@@ -58,6 +66,7 @@ function markDirty(id: string, what: { lastEdit?: boolean; branch?: string }): v
 
 /** A change to the files of `branch`. Cheap: called on every collab update. */
 export function noteEdit(projectId: string, branch: string, by: Editor | null): void {
+  if (by === AGENT_EDITOR) by = agentEditor(); // Galley: V2 (WP42)
   knownOf(projectId).lastEdit = { at: stamp(), byId: by?.id ?? null, byName: by?.name ?? null, branch };
   markDirty(projectId, { lastEdit: true });
 }

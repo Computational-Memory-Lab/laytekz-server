@@ -39,9 +39,9 @@ export function isOwnCopy(text: string): boolean {
 }
 
 /** Where text is taken as written (math, verbatim, a path), so an escape would show or break it. */
-const RAW_CONTENT = new Set(['Math', 'VerbatimContent', 'VerbContent', 'LstInlineContent', 'LiteralArgContent']);
+export const RAW_CONTENT = new Set(['Math', 'VerbatimContent', 'VerbContent', 'LstInlineContent', 'LiteralArgContent']); // Galley: V2 typing core exports it (WP08)
 /** Arguments that hold keys or paths, raw strictly between their braces. */
-const RAW_ARGS = new Set(['DollarMath', 'BracketMath', 'ParenMath', 'RefArgument', 'BibKeyArgument', 'LabelArgument', 'UrlArgument', 'FilePathArgument']);
+export const RAW_ARGS = new Set(['DollarMath', 'BracketMath', 'ParenMath', 'RefArgument', 'BibKeyArgument', 'LabelArgument', 'UrlArgument', 'FilePathArgument']); // Galley: V2 typing core exports it (WP08)
 
 /** Whether a paste at `pos` lands where text is source as written, not prose. */
 export function rawAt(state: EditorState, pos: number): boolean {

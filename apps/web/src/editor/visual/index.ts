@@ -28,6 +28,8 @@ import {
   itemHome, listItemEnter, markerOn, paragraphEnter, selectConstructBackward, selectConstructForward, visibleLineAbove,
 } from './commands';
 import { chipClicked, clickSequence, retargetsClick } from './clicks';
+// Galley: V2 (WP05) the arbiter's own tests, so widgetClick yields to exactly the mod-clicks it follows.
+import { isModClick, modClickTargetAt } from '../core/modClick';
 
 /** The construct a chip drawn at `at` stands for, as the atomic decorations have it. */
 function chipRange(view: EditorView, at: number): { from: number; to: number } | null {
@@ -36,6 +38,17 @@ function chipRange(view: EditorView, at: number): { from: number; to: number } |
     if (from === at && d.spec.closed) hit = { from, to };
   });
   return hit;
+}
+
+// Galley: V2 (WP05) a mod-click over something a mod-click handler can follow
+// belongs to the arbiter (core/modClick.ts), which follows it on click; the
+// widget leaves it alone. The modifier rule and the target are the arbiter's
+// own (isModClick, modClickTargetAt at the position under the pointer), so
+// the two never disagree.
+function modClickWanted(view: EditorView, e: MouseEvent): boolean {
+  if (!isModClick(e)) return false;
+  const pos = view.posAtCoords({ x: e.clientX, y: e.clientY });
+  return pos != null && modClickTargetAt(view, pos) != null;
 }
 
 /**
@@ -49,6 +62,7 @@ const widgetClick = EditorView.domEventHandlers({
     if (e.button !== 0 || retargetsClick(view, e)) return false;
     const t = (e.target as HTMLElement).closest?.('.cm-vis-math, .cm-vis-chip') as HTMLElement | null;
     if (!t) return false;
+    if (modClickWanted(view, e)) return false; // Galley: V2 (WP05) yields to mod-click
     const at = widgetPos(view, t);
     if (at == null) return false;
     const math = mathSpans.get(t);

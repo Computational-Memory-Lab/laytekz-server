@@ -1,11 +1,26 @@
 /**
- * Aldine Zotero plugin — vanilla-DOM sidebar panel.
- * Link a Zotero library (API key, kept with the account), pick a
+ * Laytekz libraries plugin (the plugin id stays `zotero`) — vanilla-DOM sidebar panels.
+ * Zotero: link a library (API key, kept with the account), pick a
  * library/collection, keep a .bib in sync, and insert \cite{...} while writing.
+ * Mendeley (Galley: V2 WP36): sign in, link a folder to a .bib of your own,
+ * sync it and unlink it, through the generic library links (WP35).
  */
+
+import { registerLibraryPanel } from './library-panel.js';
 
 /** A sync on open when the last one is older than this. */
 const STALE_SECONDS = 3600;
+
+/** Galley: V2 (WP36) the setting that turns the sync on open off (features/libraries/settings.ts). */
+const SYNC_ON_OPEN = 'libraries.syncOnOpen';
+/** Galley: V2 (WP36) the window event features/libraries listens to (store.ts LIBRARIES_EVENT). */
+const LIBRARIES_EVENT = 'laytekz:libraries';
+const announce = (detail) => {
+  try { window.dispatchEvent(new CustomEvent(LIBRARIES_EVENT, { detail })); } catch { /* no window: nothing listens */ }
+};
+const syncOnOpen = (aldine) => {
+  try { return aldine.settings?.get?.(SYNC_ON_OPEN) !== false; } catch { return true; }
+};
 
 /** What the toast says after a citation pick (aldine.editor.insertCitation). */
 function citeToast(aldine, key, result) {
@@ -32,6 +47,15 @@ const h = (tag, attrs = {}, ...children) => {
 
 export default {
   activate(aldine) {
+    // Galley: V2 (WP36) the Mendeley tab, pinned on the main row by features/libraries.
+    registerLibraryPanel(aldine, {
+      provider: 'mendeley',
+      label: 'Mendeley',
+      capability: 'mendeley',
+      allItems: 'All documents',
+      folderWord: 'folder',
+      help: 'Meanwhile, Mendeley Desktop can export a .bib for the desktop app to link, or Zotero can import a Mendeley library.',
+    }, { h, announce, syncOnOpen, citeToast, staleSeconds: STALE_SECONDS });
     // The panel's own actions, for the palette commands; set once it renders.
     let panel = null;
     aldine.ui.registerCommand?.({
@@ -134,7 +158,8 @@ export default {
         // One automatic sync at a time: the one on open and a re-export can both be due.
         let autoSyncing = false;
         const syncIfStale = async () => {
-          if (!state.isMember || readOnly || autoSyncing) return;
+          // Galley: V2 (WP36) the setting turns the sync on open off.
+          if (!state.isMember || readOnly || autoSyncing || !syncOnOpen(aldine)) return;
           autoSyncing = true;
           let res;
           try {
@@ -148,9 +173,16 @@ export default {
           }
           autoSyncing = false;
           if (!res.synced) { if (!res.fresh) await loadStatus(); return; }
+          synced(res);
           aldine.toast(`Synced ${res.itemCount ?? ''} references from Zotero into ${res.bibFile || 'zotero.bib'}`, 'info');
           await aldine.project.refreshFiles();
           await loadStatus();
+        };
+
+        // Galley: V2 (WP36) tell features/libraries: the read-only rule re-reads the links, renamed keys get a notice.
+        const synced = (res) => {
+          if (res && res.renamedKeys) announce({ type: 'renamed', projectId: aldine.project.id, branch: aldine.project.branch, provider: 'zotero', linkId: 'zotero', renames: res.renamedKeys });
+          announce({ type: 'changed', projectId: aldine.project.id, provider: 'zotero', linkId: 'zotero' });
         };
 
         const bibLoadUrl = () => `/api/projects/${aldine.project.id}/zotero/bib-load`;
@@ -183,6 +215,7 @@ export default {
             });
             autoSyncing = false;
             if (!res.synced) return;
+            synced(res);
             aldine.toast(`Exported ${res.itemCount ?? ''} references again with ${format === 'bibtex' ? 'BibTeX' : 'biblatex'} fields, which ${state.bibLoad?.rootFile || 'the paper'} uses`, 'info');
             await aldine.project.refreshFiles();
             await loadStatus();
@@ -277,6 +310,7 @@ export default {
                 // \addbibresource{zotero.bib} resolves
               }),
             });
+            synced(res);
             aldine.toast(`Imported ${res.itemCount ?? '?'} references into ${res.bibFile || 'zotero.bib'}`, 'ok');
             await aldine.project.refreshFiles();
             await aldine.project.refresh?.();
@@ -294,6 +328,7 @@ export default {
               method: 'POST',
               body: JSON.stringify({ branch: aldine.project.branch, force: false }),
             });
+            synced(res);
             aldine.toast(res.unchanged ? 'Zotero library unchanged' : `Synced ${res.itemCount ?? ''} references`, 'ok');
             await aldine.project.refreshFiles();
             await loadStatus();
@@ -314,6 +349,7 @@ export default {
             aldine.toast(`Unlink failed: ${err.message}`, 'error');
             return;
           }
+          synced(null);
           await aldine.project.refresh?.();
           await loadStatus();
         };

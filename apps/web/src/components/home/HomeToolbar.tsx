@@ -5,13 +5,17 @@ import { MenuButton, type MenuEntry } from '../Menu';
 import { AvatarFace } from '../AvatarFace';
 import { OperatorBadge } from '../Operator';
 import { INSTANCE, supportHref } from '../../instance';
-import { IconChevronDown, IconEllipsis, IconFile, IconPlus, IconSearch, IconX } from '../Icons';
+import { IconChevronDown, IconEllipsis, IconFile, IconFolderUpload, IconPlus, IconSearch, IconX } from '../Icons';
 import Wordmark from '../Wordmark';
 import { REMOTES } from '../../remotes';
 import { appearanceMenuItems } from '../Appearance';
 import { useAppearance } from '../../theme';
 import { useShortcutLabel } from '../../util/shortcuts';
 import { initials } from '../../util/homeList';
+import { Slot, SlotItemView } from '../../slots/Slot'; // Galley: V2 slots home.toolbar and home.accountMenu
+import { slotItems } from '../../slots/items'; // Galley: V2 slot home.accountMenu
+import { appCtx, useFeatureModules } from '../../features/host'; // Galley: V2 slot home.accountMenu
+import type { FeatureModule } from '../../features/types'; // Galley: V2 slot home.accountMenu
 
 export interface StartActions {
   remotes: RemoteInfo[];
@@ -19,6 +23,8 @@ export interface StartActions {
   logins: Partial<Record<RemoteProviderId, string>>;
   onNew(): void;
   onImportZip(): void;
+  /** Galley: import a folder (packed into a ZIP in the browser). */
+  onImportFolder?(): void;
   onClone(id: RemoteProviderId): void;
 }
 
@@ -27,6 +33,8 @@ export interface AccountActions {
   user: AuthUser | null;
   admin: boolean;
   onAccount(): void;
+  /** Galley: V2 the settings page (/settings). */
+  onSettings(): void;
   onConnect(): void;
   onAbout(): void;
   onAdmin(): void;
@@ -37,6 +45,7 @@ export interface AccountActions {
 export function startItems(a: StartActions): MenuEntry[] {
   return [
     { id: 'import-zip', label: 'Import a ZIP…', shortcut: 'from Overleaf', icon: <IconFile />, onSelect: a.onImportZip, testId: 'import-zip' },
+    ...(a.onImportFolder ? [{ id: 'import-folder', label: 'Import a folder…', icon: <IconFolderUpload />, onSelect: a.onImportFolder, testId: 'import-folder' } as MenuEntry] : []), // Galley: import a folder
     ...a.remotes.map((r): MenuEntry => ({
       id: `new-from-${r.id}`,
       label: `Clone from ${r.label}…`,
@@ -46,19 +55,33 @@ export function startItems(a: StartActions): MenuEntry[] {
       testId: `new-from-${r.id}`,
     })),
     { kind: 'separator' },
-    { kind: 'hint', label: 'Or drop .zip files anywhere on this page', testId: 'drop-hint' },
+    { kind: 'hint', label: 'Or drop .zip files or folders anywhere on this page', testId: 'drop-hint' },
   ];
 }
 
 const helpItem = (): MenuEntry[] => (INSTANCE?.support ? [{ id: 'help', label: 'Get help…', onSelect: openSupport, testId: 'get-help' }] : []);
 
-function accountItems(a: AccountActions, appearance: ReturnType<typeof useAppearance>): MenuEntry[] {
+// Galley: V2 the home.accountMenu slot's items, each a custom row drawn by its component.
+function accountSlotItems(modules: readonly FeatureModule[]): MenuEntry[] {
+  const items = slotItems(modules, 'home.accountMenu', { page: null, app: appCtx });
+  if (!items.length) return [];
+  return [
+    ...items.map((item): MenuEntry => ({ kind: 'custom', id: `slot-${item.id}`, render: <SlotItemView item={item} page={null} /> })),
+    { kind: 'separator' },
+  ];
+}
+
+function accountItems(a: AccountActions, appearance: ReturnType<typeof useAppearance>, slotRows: MenuEntry[] = []): MenuEntry[] {
   const appearanceSub: MenuEntry = { kind: 'submenu', id: 'appearance', label: 'Appearance', items: appearanceMenuItems(appearance), testId: 'appearance' };
+  // Galley: V2 settings page
+  const settingsItem: MenuEntry = { id: 'settings', label: 'Settings…', onSelect: a.onSettings, testId: 'open-settings' };
   if (!a.accounts || !a.user) {
     return [
+      settingsItem,
       appearanceSub,
       { id: 'connect', label: 'Connect Claude or ChatGPT…', onSelect: a.onConnect, testId: 'open-connect-claude' },
       { kind: 'separator' },
+      ...slotRows, // Galley: V2 slot home.accountMenu
       ...helpItem(),
       { id: 'about', label: 'About & source', onSelect: a.onAbout, testId: 'open-about' },
     ];
@@ -67,10 +90,12 @@ function accountItems(a: AccountActions, appearance: ReturnType<typeof useAppear
     { kind: 'header', title: a.user.name, detail: a.user.email ?? (a.user.orcid ? `ORCID ${a.user.orcid}` : null), testId: 'account-header' },
     { kind: 'separator' },
     { id: 'account', label: 'Account settings…', onSelect: a.onAccount, testId: 'user-name' },
+    settingsItem, // Galley: V2 settings page
     appearanceSub,
     { id: 'connect', label: 'Connect Claude or ChatGPT…', onSelect: a.onConnect, testId: 'open-connect-claude' },
     ...(a.admin ? [{ id: 'admin', label: 'Server admin', onSelect: a.onAdmin, testId: 'admin-link' } as MenuEntry] : []),
     { kind: 'separator' },
+    ...slotRows, // Galley: V2 slot home.accountMenu
     ...helpItem(),
     { id: 'about', label: 'About & source', onSelect: a.onAbout, testId: 'open-about' },
     { id: 'sign-out', label: 'Sign out', onSelect: a.onSignOut, testId: 'logout' },
@@ -88,7 +113,8 @@ function openSupport() {
 /** The avatar with the account menu, or "…" with the same minus the account when there are no accounts. */
 export function AccountButton(a: AccountActions) {
   const appearance = useAppearance();
-  const items = () => accountItems(a, appearance);
+  const modules = useFeatureModules(); // Galley: V2 slot home.accountMenu
+  const items = () => accountItems(a, appearance, accountSlotItems(modules));
   if (a.accounts && a.user) {
     return (
       <MenuButton items={items} label="Account" ariaLabel={`Account: ${a.user.name}`} title={a.user.name} className="home-avatar" testId="account-menu" menuTestId="account-menu-list" placement="bottom-end">
@@ -197,6 +223,7 @@ export default function HomeToolbar({ compact, scrolled, titleInBar, start, acco
             </MenuButton>
           </div>
         )}
+        <Slot name="home.toolbar" page={null} />{/* Galley: V2 slot */}
         <AccountButton {...account} />
         {compact && (
           <button type="button" className="home-tool home-tool--icon home-tool--add" onClick={(e) => onOpenAddSheet(e.detail === 0)} aria-label="New project" aria-haspopup="dialog" data-testid="home-add">

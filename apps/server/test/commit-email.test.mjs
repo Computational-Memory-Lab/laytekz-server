@@ -1,8 +1,8 @@
 /**
  * An account's commit email (#294): commits made with an email-bearing author
  * carry that address on every commit path (commit argv, the empty checkpoint
- * commit, commit-tree), keep the name History groups by, and leave Aldine as
- * the committer. A plain name keeps the derived `…@aldine.local` address.
+ * commit, commit-tree), keep the name History groups by, and leave Laytekz as
+ * the committer. A plain name keeps the derived `…@laytekz.local` address.
  * The address is validated before it can reach an ident.
  *
  * Env must be set before any src import.
@@ -41,17 +41,17 @@ let r = await gitops.autoCommit(p.id, 'main', 'Save a', ada);
 check(r.committed, 'the sweep commits');
 const [name, email, committer] = ident();
 eq([name, email], [ada.name, ada.email], 'the sweep is authored with the account commit email');
-check(committer !== ada.email, 'Aldine stays the committer');
+check(committer !== ada.email, 'Laytekz stays the committer');
 
 // ---- a plain name keeps the derived address ----
 store.writeFile(p.id, 'main', 'a.tex', 'two\n');
 await gitops.autoCommit(p.id, 'main', 'Save a again', 'Ada Lovelace');
-eq(ident().slice(0, 2), ['Ada Lovelace', 'ada.lovelace@aldine.local'], 'a name without an email keeps …@aldine.local');
+eq(ident().slice(0, 2), ['Ada Lovelace', 'ada.lovelace@laytekz.local'], 'a name without an email keeps …@laytekz.local');
 
 // ---- an object without an email is the plain name ----
 store.writeFile(p.id, 'main', 'a.tex', 'three\n');
 await gitops.autoCommit(p.id, 'main', 'Save a once more', { name: 'Ada Lovelace' });
-eq(ident().slice(0, 2), ['Ada Lovelace', 'ada.lovelace@aldine.local'], 'no email on the identity is the derived address');
+eq(ident().slice(0, 2), ['Ada Lovelace', 'ada.lovelace@laytekz.local'], 'no email on the identity is the derived address');
 
 // ---- the empty checkpoint commit (History's Save after the autosave took the edit) ----
 store.writeFile(p.id, 'main', 'a.tex', 'four\n');

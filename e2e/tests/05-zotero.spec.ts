@@ -345,6 +345,9 @@ test.describe('Zotero integration (via plugin system)', () => {
     }
   });
 
+  // Galley: V2 (WP36) the sync on open is an automatic change ('libraries.syncOnOpen'), off under the test default.
+  test.describe('with the automatic changes at their defaults', () => {
+  test.use({ settingsTestDefaults: null });
   test('palette commands reach Zotero, Cite offers it, and opening a linked project asks for a sync', async ({ page, request }) => {
     const id = await createProject(request, 'Zotero Palette');
     try {
@@ -375,5 +378,6 @@ test.describe('Zotero integration (via plugin system)', () => {
     } finally {
       await cleanup(request, id);
     }
+  });
   });
 });

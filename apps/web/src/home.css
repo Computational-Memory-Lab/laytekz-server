@@ -56,6 +56,8 @@
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
   .home-bar, :root[data-theme="dark"] .home-bar { --bar-fill: var(--bg-app); --bar-blur: none; }
 }
+/* Galley: the "Increase contrast" setting (V2, WP02; theme.css explains the mirrors). */
+:where(:root[data-contrast="more"]) .home-bar, :where(:root[data-contrast="more"]):root[data-theme="dark"] .home-bar { --bar-fill: var(--bg-app); --bar-blur: none; }
 /* The material is a layer of its own that only fades: a backdrop-filter that
    switches on mid-scroll leaves text behind it unfiltered in Chromium. */
 .home-bar::before {
@@ -705,6 +707,8 @@
 @media (prefers-reduced-motion: reduce) {
   .sheet.is-leaving { transform: none; }
 }
+/* Galley: the "Reduce motion" setting (V2, WP02). */
+:where(:root[data-motion="reduce"]) .sheet.is-leaving { transform: none; }
 
 @media (forced-colors: active) {
   .sheet__paper { border: 1px solid CanvasText; }

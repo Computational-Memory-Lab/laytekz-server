@@ -7,8 +7,10 @@ import { EditorView } from '@codemirror/view';
  */
 export const visualTheme = EditorView.theme({
   // &.cm-editor beats app.css's .code-pane .cm-scroller mono rule on specificity
-  '&.cm-editor .cm-scroller': { fontFamily: 'var(--font-serif)', fontSize: '16px', lineHeight: '1.65' },
-  '.cm-content': { maxWidth: '46em', margin: '0 auto', padding: '24px 32px' },
+  // Galley: size and width from the V2 settings (WP02, settings/apply.ts);
+  // prose keeps the font's own ligatures whatever the code font's setting.
+  '&.cm-editor .cm-scroller': { fontFamily: 'var(--font-serif)', fontSize: 'var(--visual-font-size, 16px)', lineHeight: '1.65', fontVariantLigatures: 'normal' },
+  '.cm-content': { maxWidth: 'var(--visual-width, 46em)', margin: '0 auto', padding: '24px 32px' },
   '.cm-gutters': { display: 'none' },
   '.cm-activeLine': { backgroundColor: 'transparent' },
 

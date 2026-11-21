@@ -26,6 +26,23 @@ export function loadedPackages(preamble: string): Set<string> {
   return out;
 }
 
+// Galley: V2 math hover (WP13) the document class and its body font size, read from \documentclass.
+/** The class \documentclass names ('article', 'apa7'), or null when the text has none. */
+export function documentClassOf(text: string | null): string | null {
+  if (!text) return null;
+  const m = /\\documentclass\s*(?:\[[^\]]*\])?\s*\{\s*([^}\s]+)\s*\}/.exec(stripComments(text));
+  return m ? m[1] : null;
+}
+
+/** The body font size in points the class options ask for (`[11pt]` → 11); 10, LaTeX's default, otherwise. */
+export function documentFontSize(text: string | null): number {
+  const m = text ? /\\documentclass\s*\[([^\]]*)\]/.exec(stripComments(text)) : null;
+  const size = m && /(?:^|[,\s])(\d{1,2}(?:\.\d+)?)pt(?=$|[,\s])/.exec(m[1]);
+  const pt = size ? Number(size[1]) : 10;
+  return pt >= 5 && pt <= 30 ? pt : 10;
+}
+// Galley: end V2 math hover (WP13)
+
 /** Packages that define \url (biblatex loads url itself). */
 const URL_PACKAGES = ['url', 'xurl', 'hyperref', 'biblatex'];
 

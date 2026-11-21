@@ -128,7 +128,8 @@ test.describe('compiler settings panel', () => {
 
       // Theme lives here too: the editor has no visible theme control, and
       // outside the command palette this dialog is the only way back to dark.
-      await expect(page.getByTestId('settings-theme')).toHaveValue('dark');
+      // Galley: a new browser follows the system (Match system is the default).
+      await expect(page.getByTestId('settings-theme')).toHaveValue('system');
       await page.getByTestId('settings-theme').selectOption('light');
       await expect.poll(() => page.evaluate(() => document.documentElement.dataset.theme)).toBe('light');
       await expect.poll(() => page.evaluate(() => window.localStorage.getItem('aldine.theme'))).toBe('light');

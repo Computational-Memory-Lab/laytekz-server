@@ -1,0 +1,110 @@
+/* F14 desk pet (WP44 pet-runtime; roaming pet: PET2). A window-sized
+   overlay that takes no pointer events; only the pet's body does. It sits
+   just above the toolbar (20), so a hop up from the bars under it stays in
+   view, and below every menu, popover, dialog, toast and the settings page.
+   While a popup that hangs from the toolbar is open (the branch menu and
+   the like mark their button aria-expanded), it drops under the toolbar so
+   it never covers that popup. */
+.desk-pet {
+  position: fixed;
+  inset: 0;
+  z-index: 21;
+  overflow: hidden;
+  pointer-events: none;
+  contain: layout paint style;
+}
+.toolbar:has([aria-expanded="true"]) ~ .desk-pet { z-index: 19; }
+.desk-pet__pos {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  will-change: transform;
+}
+.desk-pet__shadow {
+  position: absolute;
+  left: 0;
+  top: -3px;
+  height: 6px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(0, 0, 0, 0.22), rgba(0, 0, 0, 0));
+  transform: translate(-50%, 0);
+  pointer-events: none;
+}
+:root[data-theme="dark"] .desk-pet__shadow { background: radial-gradient(closest-side, rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0)); }
+.desk-pet__body {
+  position: absolute;
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
+  transform-origin: 50% 100%;
+}
+.desk-pet__lean,
+.desk-pet__squash,
+.desk-pet__fx {
+  position: absolute;
+  inset: 0;
+  transform-origin: 50% 100%;
+}
+.desk-pet__lean { transition: transform 200ms ease-out, scale 600ms ease-in-out; }
+.desk-pet__squash { transition: transform 200ms ease-out; }
+.desk-pet--moving .desk-pet__squash { transition: none; }
+.desk-pet--held .desk-pet__squash { transition: transform 120ms ease-out; }
+.desk-pet__img {
+  position: absolute;
+  inset: 0;
+  background-position: center bottom;
+  background-repeat: no-repeat;
+  background-size: contain;
+  /* Turning round squeezes through zero width: a little spin, not a jump. */
+  transition: transform 160ms ease-out, filter 600ms ease-in-out;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.16));
+}
+.desk-pet--held .desk-pet__body { cursor: grabbing; }
+
+/* Napping: it slumps and dims a little; "z"s float up now and then. */
+.desk-pet--nap .desk-pet__lean { scale: 1.06 0.88; }
+.desk-pet--nap .desk-pet__img { filter: brightness(0.88) saturate(0.85) drop-shadow(0 1px 1px rgba(0, 0, 0, 0.16)); }
+
+/* Arriving under reduced motion: a fade. Turned off or sent away: it shrinks away. */
+.desk-pet--appear .desk-pet__body { animation: desk-pet-appear 300ms ease-out; }
+@keyframes desk-pet-appear { from { opacity: 0; } to { opacity: 1; } }
+.desk-pet--leaving .desk-pet__body { scale: 0.01; opacity: 0; transition: scale 240ms ease-in, opacity 240ms ease-in; }
+:root[data-motion="reduce"] .desk-pet--leaving .desk-pet__body { scale: 1; }
+@media (prefers-reduced-motion: reduce) { .desk-pet--leaving .desk-pet__body { scale: 1; } }
+
+.desk-pet__bubble {
+  position: absolute;
+  left: 0;
+  bottom: 44px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  box-sizing: border-box;
+  border-radius: 9px;
+  background: var(--bg-panel, #fff);
+  color: var(--text, #222);
+  border: 1px solid var(--hairline, rgba(0, 0, 0, 0.12));
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.14);
+  font: 700 12px/16px system-ui, sans-serif;
+  text-align: center;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-50%, 0);
+}
+.desk-pet__bubble[data-kind="z"] { left: 14px; min-width: 0; background: none; border: 0; box-shadow: none; color: var(--text-2, #666); font-style: italic; }
+.desk-pet__bubble[data-kind="heart"] { color: #e5484d; }
+.desk-pet__bubble[data-kind="!"] { color: var(--accent, #c25e00); }
+.desk-pet__bubble svg { display: inline-block; width: 11px; height: 11px; vertical-align: -1px; }
+
+@media (forced-colors: active) {
+  .desk-pet { display: none !important; }
+}
+@media print {
+  .desk-pet { display: none !important; }
+}
